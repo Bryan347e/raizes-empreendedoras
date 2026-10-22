@@ -22,7 +22,7 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; scroll-padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
-body { margin: 0; min-width: 320px; background: var(--paper); color: var(--ink); font-size: 16px; line-height: 1.55; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-size: 16px; line-height: 1.55; }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 button, a, select, input[type=file] { touch-action: manipulation; }
@@ -340,7 +340,7 @@ h3 { font-size: 1.28rem; }
   .header-cta { min-height: 42px; padding: 8px 12px; font-size: .79rem; }
   .header-cta svg { display: none; }
   .hero { min-height: 0; }
-  .hero-grid { grid-template-columns: 1fr; gap: 34px; padding-block: 48px 58px; }
+  .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 34px; padding-block: 48px 58px; }
   .hero h1 { max-width: 590px; font-size: clamp(2.45rem, 10vw, 4.25rem); }
   .hero-content > p { font-size: 1rem; }
   .hero-feature { min-height: 315px; max-width: 500px; margin-inline: auto; padding: 0 18px 0 0; width: 100%; }
