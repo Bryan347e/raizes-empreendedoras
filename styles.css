@@ -377,7 +377,8 @@ h3 { font-size: 1.28rem; }
 }
 
 @media (max-width: 510px) {
-  .header-cta { max-width: 94px; text-align: center; line-height: 1.15; }
+  .header-inner { gap: 12px; }
+  .header-cta { max-width: 128px; min-width: 0; min-height: 44px; white-space: normal; text-align: center; line-height: 1.2; }
   .hero-grid { padding-top: 36px; }
   .hero-kicker { font-size: .82rem; }
   .hero h1 { font-size: clamp(2.4rem, 11vw, 3.2rem); }
