@@ -224,8 +224,25 @@ export function validateBusiness(values) {
   if ((values.student || "").trim().length < 3) errors.student = "Informe o nome do aluno responsável.";
   if (!UNITS.includes((values.unit || "").trim())) errors.unit = "Escolha uma unidade ETEC da lista.";
   if ((values.contact || "").trim().length < 5) errors.contact = "Informe um contato com pelo menos 5 caracteres.";
+  if (values.city !== undefined && (!(values.city || "").trim() || values.city.length > 80)) errors.city = "Informe a cidade de atendimento (até 80 caracteres).";
+  if (values.neighborhood !== undefined && (!(values.neighborhood || "").trim() || values.neighborhood.length > 80)) errors.neighborhood = "Informe o bairro de atendimento (até 80 caracteres).";
+  if (values.products !== undefined && (!Array.isArray(values.products) || !values.products.length || values.products.length > 12 || values.products.some(p => !p || typeof p.name !== "string" || p.name.trim().length < 2 || p.name.length > 100 || (p.price !== null && (typeof p.price !== "number" || !Number.isFinite(p.price) || p.price < 0 || p.price > 1000000))))) errors.products = "Informe de 1 a 12 produtos com nome e preço válido, ou marque sob consulta.";
   return errors;
 }
+
+const demoDetails = [
+  ["Santana", -23.50, -46.63, [8, 10, 35], "chocolate artesanal presente"],
+  ["Pinheiros", -23.57, -46.69, [35, 25, 18], "moda sustentável vintage roupas"],
+  ["Santana", -23.51, -46.62, [150, 35, 60], "design criatividade identidade visual"],
+  ["Mooca", -23.56, -46.60, [65, 40, null], "computador tecnologia manutenção"],
+  ["Vila Leopoldina", -23.53, -46.73, [28, 18, 45], "decoração cerâmica artesanal casa"],
+  ["Bom Retiro", -23.53, -46.64, [12, 35, null], "natural aromas autocuidado presente"],
+  ["Santana", -23.50, -46.62, [30, 12, 25], "matemática estudos aprender" ]
+];
+DEMO_BUSINESSES.forEach((business, index) => {
+  const [neighborhood, latitude, longitude, prices, tags] = demoDetails[index];
+  Object.assign(business, { city: "São Paulo", neighborhood, location: { latitude, longitude }, locationIsDemo: true, tags, products: business.offerings.map((name, i) => ({ name, price: prices[i] })) });
+});
 
 export function saveBusiness(values, images = [], storage = browserStorage()) {
   const errors = validateBusiness(values);

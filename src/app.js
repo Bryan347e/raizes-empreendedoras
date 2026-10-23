@@ -1,8 +1,10 @@
 import {
   CATEGORIES, UNITS, DEMO_BUSINESSES, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
-  filterBusinesses, validateBusiness, saveBusiness
+  filterBusinesses, validateBusiness
 } from "./catalog.js";
+import { account, loadAccount, publishBusiness, signOut, setupGoogleLogin } from "./api.js";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js";
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -10,6 +12,17 @@ let formImages = [];
 let toastTimer;
 let publishDirty = false;
 let previousHash = window.location.hash || "#/inicio";
+let preferences;
+try { preferences = getPreferences(); } catch { preferences = { ...DEFAULT_PREFERENCES, categories: [] }; }
+let preferenceDraft = { ...preferences, categories: [...preferences.categories] };
+let businessLocation = null;
+let productRowId = 0;
+
+function allBusinesses() {
+  const byId = new Map(getAllBusinesses().map(b => [b.id, b]));
+  account.businesses.forEach(b => byId.set(b.id, b));
+  return [...byId.values()];
+}
 
 const paths = {
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
@@ -49,7 +62,7 @@ function escapeHTML(value = "") {
 
 function safeImageSrc(value) {
   if (typeof value !== "string") return "";
-  return /^assets\/[a-z0-9-]+\.(png|jpe?g|webp)$/i.test(value) || /^data:image\/(png|jpeg|webp);base64,/i.test(value) ? value : "";
+  return /^assets\/[a-z0-9-]+\.(png|jpe?g|webp)$/i.test(value) || /^api\/imagens\/[a-f0-9-]{36}$/i.test(value) || /^data:image\/(png|jpeg|webp);base64,/i.test(value) ? value : "";
 }
 
 function businessUrl(id) { return `#/negocio/${encodeURIComponent(id)}`; }
@@ -102,11 +115,11 @@ function shell(content, active = "") {
         <a href="#/divulgar" class="header-cta">Divulgar minha marca ${icon("arrow", 17)}</a>
       </div>
     </header>
-    <main id="main-content" tabindex="-1">${content}</main>
+    <main id="main-content" tabindex="-1">${account.error && !account.loading ? `<div class="page-width service-notice" role="status"><strong>Contas e anúncios compartilhados indisponíveis no momento.</strong><p>${escapeHTML(account.error)} Os exemplos e suas preferências continuam disponíveis. <a class="text-link" href="#/perfil">Ver acesso à conta</a></p></div>` : ""}${content}</main>
     <footer class="site-footer">
       <div class="page-width footer-grid">
         <div><p class="footer-name">Raízes Empreendedoras</p><p>Entre marcas, ideias e pessoas da comunidade ETEC.</p></div>
-        <div><p class="footer-label">Nesta primeira versão</p><p>Os negócios de exemplo são demonstrativos. Cadastros e favoritos ficam somente neste navegador e não são compartilhados.</p></div>
+        <div><p class="footer-label">Da comunidade ETEC</p><p>Exemplos, preços e locais demonstrativos estão identificados. Novos anúncios são vinculados à conta Google quando o serviço está ativo. Favoritos e preferências ficam neste navegador.</p><a class="text-link" href="#/privacidade">Privacidade e uso dos dados</a></div>
       </div>
     </footer>
     <nav class="bottom-nav" aria-label="Navegação no celular">
@@ -125,9 +138,41 @@ function businessCard(business) {
       <h3><a href="${businessUrl(business.id)}">${escapeHTML(business.name)}</a></h3>
       <p class="card-description">${escapeHTML(business.shortDescription || business.description)}</p>
       <p class="card-unit">${icon("pin", 16)}<span>${escapeHTML(business.unit)}</span></p>
-      <div class="card-footer"><span>${business.demo ? "Exemplo demonstrativo" : "Marca cadastrada aqui"}</span><a href="${businessUrl(business.id)}" aria-label="Conhecer ${escapeHTML(business.name)}">Conhecer ${icon("arrow", 16)}</a></div>
+      <p class="business-locality">${escapeHTML([business.neighborhood, business.city].filter(Boolean).join(" · ") || "Região não informada")}${distanceMarkup(business)}</p>
+      <p class="business-price">${minimumPrice(business)}</p>
+      <div class="card-footer"><span>${business.demo ? "Exemplo demonstrativo" : business.shared ? "Marca da comunidade" : "Salvo neste aparelho"}</span><a href="${businessUrl(business.id)}" aria-label="Conhecer ${escapeHTML(business.name)}">Conhecer ${icon("arrow", 16)}</a></div>
     </div>
   </article>`;
+}
+
+function minimumPrice(business) {
+  const prices = productsOf(business).map(p => p.price).filter(p => typeof p === "number");
+  return prices.length ? `A partir de ${money(Math.min(...prices))}` : "Preços sob consulta";
+}
+
+function distanceMarkup(business) {
+  const km = distanceKm(preferences.location, business.location);
+  if (km === null) return "";
+  const value = km < 1 ? "menos de 1 km" : `${km.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km`;
+  return `<span class="distance-note">${business.demo ? "Distância ilustrativa" : "Distância aproximada"}: ${value} em linha reta</span>`;
+}
+
+function renderPreferences(standalone = false) {
+  const p = preferenceDraft;
+  return `${standalone ? '<section class="page-heading page-width"><p class="section-intro">Seu jeito de descobrir</p><h1>Local e preferências</h1><p>Encontre marcas da sua região e produtos que combinam com o seu orçamento.</p></section>' : ""}
+    <section class="page-width preferences-section" aria-labelledby="preferences-title"><details class="preferences-panel" ${!p.neighborhood && !p.location || standalone ? "open" : ""}>
+      <summary><span>${icon("pin", 24)}<span><strong id="preferences-title">Descubra perto de você</strong><small>${escapeHTML(p.neighborhood ? `${p.neighborhood}, ${p.city}` : p.location ? "Localização aproximada definida" : "Indique sua região, seus gostos e seu orçamento")}</small></span></span><span class="preferences-edit">Personalizar</span></summary>
+      <form id="preferences-form" novalidate><div class="preferences-grid">
+        <fieldset><legend>Sua região</legend><label for="preference-city">Cidade</label><input id="preference-city" name="city" maxlength="80" value="${escapeHTML(p.city)}" autocomplete="address-level2"><label for="preference-neighborhood">Bairro</label><input id="preference-neighborhood" name="neighborhood" maxlength="80" value="${escapeHTML(p.neighborhood)}" placeholder="Ex.: Santana" autocomplete="address-level3"><button type="button" class="location-button" data-geolocate="consumer">${icon("pin", 18)} Usar minha localização aproximada</button><p id="consumer-location-state" class="field-hint" role="status">${p.location ? "Localização aproximada definida. Você pode removê-la abaixo." : "Opcional. O navegador pedirá sua permissão."}</p><button type="button" class="clear-button" id="remove-consumer-location" ${!p.location ? "hidden" : ""}>Remover localização</button><p class="field-hint">Sua localização fica apenas neste navegador, arredondada para uma região de cerca de 1 km. Não pedimos o endereço da sua casa.</p></fieldset>
+        <fieldset><legend>O que combina com você?</legend><div class="interest-options">${CATEGORIES.map(c => `<label><input type="checkbox" name="interests" value="${escapeHTML(c)}" ${p.categories.includes(c) ? "checked" : ""}><span>${escapeHTML(c)}</span></label>`).join("")}</div><label for="preference-tastes">Seus gostos</label><input id="preference-tastes" name="tastes" maxlength="160" value="${escapeHTML(p.tastes)}" placeholder="Ex.: chocolate, artesanal, moda circular"><p class="field-hint">Esses termos ajudam a priorizar as sugestões.</p></fieldset>
+        <fieldset><legend>Seu orçamento por produto ou serviço</legend><label for="preference-min">A partir de (R$)</label><input id="preference-min" name="minPrice" inputmode="decimal" maxlength="12" value="${escapeHTML(p.minPrice)}" placeholder="Sem mínimo"><label for="preference-max">Até (R$)</label><input id="preference-max" name="maxPrice" inputmode="decimal" maxlength="12" value="${escapeHTML(p.maxPrice)}" placeholder="Sem máximo"><p class="field-hint">Use vírgula para centavos. Com orçamento definido, produtos sem preço informado não entram nas recomendações.</p></fieldset>
+      </div><p id="preferences-error" class="field-error" role="alert"></p><div class="preferences-actions"><button type="submit" class="button button-dark">Salvar minhas preferências</button><button type="button" class="clear-button" id="reset-preferences">Limpar preferências</button><p>Você pode explorar sem preencher. Sem GPS, priorizamos o bairro informado; com GPS, ordenamos pela distância aproximada.</p></div></form>
+    </details></section>`;
+}
+
+function renderRecommendations() {
+  const results = recommendProducts(allBusinesses(), preferences);
+  return `<section class="page-width recommendations-section" aria-labelledby="recommended-title"><div class="section-heading"><div><p class="section-intro">Escolhas para o seu dia</p><h2 id="recommended-title">Para você e para o seu bolso</h2></div><a class="text-link" href="#/preferencias">Ajustar minhas preferências</a></div><p class="demo-context">Sugestões por gostos e orçamento, com proximidade aproximada quando disponível. Preços e regiões dos exemplos são fictícios.</p>${results.length ? `<div class="product-grid">${results.map(({ business, product, matchesTaste }) => `<article class="product-card"><a class="product-photo" href="${businessUrl(business.id)}" aria-label="Conhecer ${escapeHTML(product.name)} de ${escapeHTML(business.name)}">${imageMarkup(business)}</a><div><span class="category-label">${escapeHTML(business.category)}</span><h3><a href="${businessUrl(business.id)}">${escapeHTML(product.name)}</a></h3><p>${escapeHTML(business.name)}</p><strong class="product-price">${money(product.price)}</strong><p class="product-reason">${matchesTaste ? "Combina com seus gostos" : "Explore esta sugestão"}</p><small>${escapeHTML(business.neighborhood || "Região não informada")}${business.demo ? " · Exemplo demonstrativo" : ""}</small>${distanceMarkup(business)}</div></article>`).join("")}</div>` : '<div class="empty-state"><h3>Nenhum produto dentro desta seleção</h3><p>Tente ampliar o orçamento ou escolher outras categorias. Não incluímos preços desconhecidos como se estivessem dentro do seu limite.</p><a class="button button-dark" href="#/preferencias">Ajustar preferências</a></div>'}</section>`;
 }
 
 function renderHome() {
@@ -153,6 +198,8 @@ function renderHome() {
       </div>
     </div>
   </section>
+  ${renderPreferences()}
+  ${renderRecommendations()}
   <section class="categories-section page-width" aria-labelledby="categories-title">
     <div class="section-heading"><div><p class="section-intro">Explore do seu jeito</p><h2 id="categories-title">O que você procura hoje?</h2></div><a class="text-link" href="#/explorar">Ver todos os negócios ${icon("arrow", 18)}</a></div>
     <div class="category-grid">${CATEGORIES.map((category, index) => `<a class="category-tile category-${index + 1}" href="#/explorar?categoria=${encodeURIComponent(category)}"><span class="category-icon">${icon(categoryIcons[category], 29)}</span><span>${escapeHTML(category)}</span>${icon("arrow", 17)}</a>`).join("")}</div>
@@ -186,7 +233,7 @@ function exploreUrl(filters) {
 }
 
 function renderExplore(params) {
-  const all = getAllBusinesses();
+  const all = allBusinesses();
   const filters = { query: params.get("busca") || "", category: params.get("categoria") || "", unit: params.get("unidade") || "" };
   const units = [...new Set([...UNITS, ...all.map((business) => business.unit)])];
   return `<section class="page-heading page-width"><p class="section-intro">Conheça quem empreende</p><h1>Explore negócios</h1><p>Encontre produtos, marcas e serviços criados por estudantes da comunidade ETEC.</p></section>
@@ -197,6 +244,7 @@ function renderExplore(params) {
         <div class="field-with-icon">${icon("search", 20)}<input id="explore-query" type="search" value="${escapeHTML(filters.query)}" placeholder="Ex.: brownie, design, tecnologia" autocomplete="off"></div>
         <label for="unit-filter">Unidade ETEC</label>
         <select id="unit-filter"><option value="">Todas as unidades</option>${units.map((unit) => `<option value="${escapeHTML(unit)}" ${filters.unit === unit ? "selected" : ""}>${escapeHTML(unit)}</option>`).join("")}</select>
+        <label for="sort-order">Organizar por</label><select id="sort-order"><option value="nearby">Mais próximos da minha região</option><option value="name">Nome da marca</option></select><label class="checkbox-label"><input type="checkbox" id="use-preferences" checked>Aplicar meu orçamento e meus gostos</label><p class="field-hint">${preferences.location ? "Distâncias em linha reta, entre regiões aproximadas." : preferences.neighborhood ? `Priorizando o bairro ${escapeHTML(preferences.neighborhood)}. Ative a localização para calcular distâncias.` : "Indique seu local para priorizar negócios da sua região."}</p><a class="text-link" href="#/preferencias">Alterar local e preferências</a>
         <div class="filter-category-heading"><span>Categoria</span><button id="clear-filters" type="button" class="clear-button">Limpar filtros</button></div>
         <div class="filter-chips" role="group" aria-label="Filtrar por categoria"><button type="button" data-category="" class="filter-chip ${!filters.category ? "is-active" : ""}" aria-pressed="${!filters.category}">Todas</button>${CATEGORIES.map((category) => `<button type="button" data-category="${escapeHTML(category)}" class="filter-chip ${filters.category === category ? "is-active" : ""}" aria-pressed="${filters.category === category}">${escapeHTML(category)}</button>`).join("")}</div>
       </div>
@@ -216,18 +264,22 @@ function emptyState(kind) {
 
 function renderFavorites() {
   const ids = getFavorites();
-  const items = getAllBusinesses().filter((business) => ids.includes(business.id));
+  const items = allBusinesses().filter((business) => ids.includes(business.id));
   return `<section class="page-heading page-width"><p class="section-intro">Suas descobertas</p><h1>Favoritos</h1><p>Guarde as marcas que você quer visitar novamente neste navegador.</p></section><section class="page-width listing-section">${items.length ? `<h2 class="sr-only">Marcas favoritas</h2><div class="business-grid">${items.map(businessCard).join("")}</div>` : emptyState("favorites")}</section>`;
 }
 
 function renderProfile() {
-  const items = getCreatedBusinesses();
-  return `<section class="page-heading page-width"><p class="section-intro">Seu espaço</p><h1>Perfil empreendedor</h1><p>Acompanhe as marcas que você cadastrou neste navegador.</p></section>
-    <section class="page-width profile-layout"><aside class="profile-panel"><div class="profile-avatar">${icon("user", 36)}</div><h2>Seu espaço de empreendedor(a)</h2><p>Os cadastros desta demonstração ficam salvos apenas neste navegador. Sem autenticação, este perfil não comprova vínculo com uma ETEC.</p><a class="button button-gold" href="#/divulgar">Divulgar outra marca ${icon("arrow", 18)}</a></aside><div class="profile-content"><div class="section-heading"><h2>Meus negócios <span class="count-badge">${items.length}</span></h2></div>${items.length ? `<div class="business-grid">${items.map(businessCard).join("")}</div>` : emptyState("profile")}</div></section>`;
+  const items = account.user ? account.businesses.filter(b => b.ownerId === account.user.id) : [];
+  const legacy = getCreatedBusinesses();
+  return `<section class="page-heading page-width"><p class="section-intro">Seu espaço</p><h1>Perfil empreendedor</h1><p>Entre com uma conta Google para divulgar e acompanhar seus negócios.</p></section>${account.user ? `<section class="page-width profile-layout"><aside class="profile-panel"><div class="profile-avatar">${icon("user", 36)}</div><h2>${escapeHTML(account.user.name)}</h2><p class="account-email">${escapeHTML(account.user.email)}</p><p>Seu e-mail identifica a conta e não aparece na vitrine. O login Google não comprova vínculo com uma ETEC.</p><a class="button button-gold" href="#/divulgar">Divulgar minha marca ${icon("arrow", 18)}</a><button type="button" class="button button-light" id="sign-out">Sair da conta</button></aside><div class="profile-content"><div class="section-heading"><h2>Meus negócios <span class="count-badge">${items.length}</span></h2></div>${items.length ? `<div class="business-grid">${items.map(businessCard).join("")}</div>` : '<div class="empty-state"><h3>Sua primeira marca começa aqui</h3><p>Ao publicar, o negócio será vinculado a esta conta e ficará disponível na vitrine para outras pessoas.</p><a class="button button-dark" href="#/divulgar">Divulgar minha marca</a></div>'}</div></section>` : `<section class="page-width auth-section">${renderLogin()}</section>`}${legacy.length ? `<section class="page-width legacy-section"><h2>Anúncios antigos deste aparelho</h2><p>Estes cadastros foram feitos na demonstração anterior, sem conta. Eles foram preservados neste navegador e não foram vinculados automaticamente a um e-mail.</p><div class="business-grid">${legacy.map(businessCard).join("")}</div></section>` : ""}`;
+}
+
+function renderLogin() {
+  return `<div class="auth-card"><div class="auth-illustration">${icon("sprout", 44)}</div><h2>Uma conta para suas ideias crescerem</h2><p>Use uma conta Google que você já possui. Na primeira entrada, criamos seu perfil com o nome e o e-mail confirmados pelo Google.</p>${account.loading ? '<p role="status">Verificando acesso à conta…</p>' : account.authReady ? '<div id="google-signin" class="google-signin"><p role="status">Preparando o login Google…</p></div>' : '<div class="service-notice"><strong>As contas ainda estão sendo ativadas neste endereço.</strong><p>Você já pode explorar os negócios e personalizar suas recomendações. A divulgação com conta Google estará disponível quando a ativação terminar.</p></div>'}<p id="login-error" class="field-error" role="alert">${escapeHTML(account.error)}</p><button class="clear-button" type="button" id="retry-account">Tentar novamente</button><p class="field-hint">Seu e-mail de acesso fica privado. O contato público da marca é informado separadamente. Entrar com Google não verifica se você estuda em uma ETEC.</p><a class="text-link" href="#/privacidade">Como usamos seus dados</a></div>`;
 }
 
 function renderDetail(id, params) {
-  const business = getAllBusinesses().find((item) => item.id === id);
+  const business = allBusinesses().find((item) => item.id === id);
   if (!business) return `<section class="page-width not-found"><div class="empty-state">${icon("search", 42)}<h1>Negócio não encontrado</h1><p>O endereço pode estar incorreto ou a marca pode ter sido removida deste navegador.</p><a class="button button-dark" href="#/explorar">Explorar negócios</a></div></section>`;
   const otherImages = business.images?.slice(1).filter(safeImageSrc) || [];
   return `<div class="page-width detail-page"><a href="#/explorar" class="back-link">${icon("back", 18)} Voltar para explorar</a>
@@ -236,13 +288,15 @@ function renderDetail(id, params) {
     <div class="detail-grid"><div class="detail-main">
       <div class="detail-photo">${imageMarkup(business)}</div>
       ${otherImages.length ? `<div class="detail-gallery">${otherImages.map((source, index) => `<span class="photo-frame"><img src="${escapeHTML(source)}" alt="Outra imagem de ${escapeHTML(business.name)}, foto ${index + 2}" width="360" height="260" loading="lazy" data-business-image><span class="photo-fallback">Imagem indisponível</span></span>`).join("")}</div>` : ""}
-      <div class="detail-description"><h2>Sobre o negócio</h2><p>${escapeHTML(business.description)}</p><h2>Produtos e serviços</h2><ul class="offering-list">${business.offerings.map((offering) => `<li>${icon("check", 16)}${escapeHTML(offering)}</li>`).join("")}</ul></div>
-    </div><aside class="detail-sidebar"><div class="detail-heading"><span class="category-label">${escapeHTML(business.category)}</span>${favoriteButton(business)}<p class="detail-title">${escapeHTML(business.name)}</p><p>${escapeHTML(business.shortDescription || business.description)}</p></div><div class="detail-facts"><div>${icon("user", 20)}<span><small>Aluno responsável</small><strong>${escapeHTML(business.student)}</strong></span></div><div>${icon("pin", 20)}<span><small>Unidade ETEC</small><strong>${escapeHTML(business.unit)}</strong></span></div></div><div class="contact-box"><h2>Entre em contato</h2>${contactMarkup(business)}${business.demo ? '<small>Este é um exemplo demonstrativo. O contato não direciona a uma pessoa real.</small>' : '<small>Contato informado por quem cadastrou esta marca neste navegador.</small>'}</div>${business.demo ? '<span class="detail-demo">Exemplo demonstrativo</span>' : '<span class="detail-demo">Cadastro salvo localmente</span>'}</aside></div>
+      <div class="detail-description"><h2>Sobre o negócio</h2><p>${escapeHTML(business.description)}</p><h2>Produtos e serviços</h2><ul class="offering-list">${productsOf(business).map(product => `<li>${icon("check", 16)}<span>${escapeHTML(product.name)}</span><strong>${money(product.price)}</strong></li>`).join("")}</ul><h2>Região de atendimento</h2><p>${escapeHTML([business.neighborhood, business.city].filter(Boolean).join(", ") || "Não informada")}${distanceMarkup(business)}</p><p class="field-hint">${business.demo ? "Os preços e a localização deste negócio são fictícios para demonstrar as recomendações." : "A localização, quando informada, representa uma região aproximada. A distância é em linha reta e não representa um trajeto."}</p></div>
+    </div><aside class="detail-sidebar"><div class="detail-heading"><span class="category-label">${escapeHTML(business.category)}</span>${favoriteButton(business)}<p class="detail-title">${escapeHTML(business.name)}</p><p>${escapeHTML(business.shortDescription || business.description)}</p></div><div class="detail-facts"><div>${icon("user", 20)}<span><small>Aluno responsável</small><strong>${escapeHTML(business.student)}</strong></span></div><div>${icon("pin", 20)}<span><small>Unidade ETEC</small><strong>${escapeHTML(business.unit)}</strong></span></div></div><div class="contact-box"><h2>Entre em contato</h2>${contactMarkup(business)}${business.demo ? '<small>Este é um exemplo demonstrativo. O contato não direciona a uma pessoa real.</small>' : '<small>Contato público informado pelo responsável pela marca.</small>'}</div><span class="detail-demo">${business.demo ? "Exemplo demonstrativo" : business.shared ? "Anúncio da comunidade" : "Cadastro antigo deste navegador"}</span></aside></div>
   </div>`;
 }
 
 function renderPublish() {
-  return `<section class="page-heading page-width"><p class="section-intro">Faça parte da vitrine</p><h1>Divulgar minha marca</h1><p>Conte o que você criou. Seus dados serão salvos neste navegador para esta demonstração.</p></section>
+  const heading = `<section class="page-heading page-width"><p class="section-intro">Faça parte da vitrine</p><h1>Divulgar minha marca</h1><p>Seu anúncio fica vinculado à sua conta e pode ser descoberto por outras pessoas.</p></section>`;
+  if (!account.user) return `${heading}<section class="page-width auth-section">${renderLogin()}</section>`;
+  return `${heading}
     <section class="page-width publish-layout"><form id="publish-form" class="publish-form" novalidate>
       <div class="form-intro"><h2>Informações do negócio</h2><p>Campos com <span aria-hidden="true">*</span> são obrigatórios.</p></div>
       <div id="form-error-summary" class="form-error-summary" role="alert" tabindex="-1" hidden></div>
@@ -250,13 +304,28 @@ function renderPublish() {
         <div class="form-field"><label for="business-name">Nome do negócio <span aria-hidden="true">*</span></label><input id="business-name" name="name" type="text" maxlength="80" autocomplete="organization" required placeholder="Ex.: Ateliê Girassol"><p id="error-name" class="field-error" data-error-for="name"></p></div>
         <div class="form-field"><label for="business-category">Categoria <span aria-hidden="true">*</span></label><select id="business-category" name="category" required><option value="">Selecione uma categoria</option>${CATEGORIES.map((category) => `<option value="${escapeHTML(category)}">${escapeHTML(category)}</option>`).join("")}</select><p id="error-category" class="field-error" data-error-for="category"></p></div>
         <div class="form-field full"><label for="business-description">Descrição do empreendimento <span aria-hidden="true">*</span></label><textarea id="business-description" name="description" rows="5" maxlength="600" required placeholder="Conte como seu negócio começou e o que torna sua marca especial."></textarea><p class="field-hint">Mínimo de 30 caracteres.</p><p id="error-description" class="field-error" data-error-for="description"></p></div>
-        <div class="form-field full"><label for="business-offerings">Produtos ou serviços oferecidos <span aria-hidden="true">*</span></label><textarea id="business-offerings" name="offerings" rows="3" required placeholder="Escreva um item por linha. Ex.: brownies tradicionais"></textarea><p class="field-hint">Separe os itens por linha ou vírgula.</p><p id="error-offerings" class="field-error" data-error-for="offerings"></p></div>
-        <div class="form-field full"><label for="business-student">Aluno responsável <span aria-hidden="true">*</span></label><input id="business-student" name="student" type="text" maxlength="90" autocomplete="name" required placeholder="Seu nome"><p id="error-student" class="field-error" data-error-for="student"></p></div>
+        <fieldset class="form-field full product-editor"><legend>Produtos ou serviços e preços <span aria-hidden="true">*</span></legend><p class="field-hint">Informe o valor de cada item para que ele seja recomendado dentro do orçamento. Deixe o preço vazio quando for sob consulta.</p><div id="product-rows">${productRow()}</div><button type="button" class="clear-button" id="add-product">Adicionar produto ou serviço</button><p id="error-products" class="field-error" data-error-for="products"></p><p id="error-offerings" class="field-error" data-error-for="offerings"></p></fieldset>
+        <div class="form-field"><label for="business-city">Cidade de atendimento <span aria-hidden="true">*</span></label><input id="business-city" name="city" maxlength="80" value="São Paulo" required><p id="error-city" class="field-error" data-error-for="city"></p></div><div class="form-field"><label for="business-neighborhood">Bairro de atendimento <span aria-hidden="true">*</span></label><input id="business-neighborhood" name="neighborhood" maxlength="80" required placeholder="Ex.: Santana"><p id="error-neighborhood" class="field-error" data-error-for="neighborhood"></p></div>
+        <div class="form-field full"><button type="button" class="location-button" data-geolocate="business">${icon("pin", 18)} Usar a região de atendimento atual</button><p id="business-location-state" class="field-hint" role="status">Opcional. A localização será publicada arredondada para uma região de cerca de 1 km, para ajudar na busca por proximidade. Se atende de casa, informe apenas cidade e bairro se preferir.</p><button type="button" class="clear-button" id="remove-business-location" hidden>Remover localização</button><p id="error-location" class="field-error" data-error-for="location"></p></div><div class="form-field full"><label for="business-tags">Estilo e características da marca</label><input id="business-tags" name="tags" maxlength="160" placeholder="Ex.: artesanal, chocolate, presentes"><p class="field-hint">Ajuda a combinar seu negócio com os gostos de quem visita.</p></div>
+        <div class="form-field full"><label for="business-student">Aluno responsável <span aria-hidden="true">*</span></label><input id="business-student" name="student" type="text" maxlength="90" autocomplete="name" required value="${escapeHTML(account.user.name)}" placeholder="Seu nome"><p id="error-student" class="field-error" data-error-for="student"></p></div>
         <div class="form-field full"><label for="business-unit">Unidade ETEC <span aria-hidden="true">*</span></label><select id="business-unit" name="unit" required><option value="">Selecione sua unidade</option>${UNITS.map((unit) => `<option value="${escapeHTML(unit)}">${escapeHTML(unit)}</option>`).join("")}</select><p class="field-hint">Unidades da cidade de São Paulo. A seleção não verifica vínculo estudantil.</p><p id="error-unit" class="field-error" data-error-for="unit"></p></div>
         <div class="form-field full"><label for="business-contact">Contato <span aria-hidden="true">*</span></label><input id="business-contact" name="contact" type="text" maxlength="140" required placeholder="E-mail, perfil profissional ou outro contato"><p class="field-hint">Será exibido na página da marca. Confira antes de salvar.</p><p id="error-contact" class="field-error" data-error-for="contact"></p></div>
         <div class="form-field full"><label for="business-images">Imagens do negócio</label><label class="upload-box" for="business-images">${icon("image", 28)}<strong>Adicione até 3 fotos</strong><span>JPG, PNG ou WebP. As imagens são reduzidas antes de salvar.</span><input id="business-images" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><p id="error-images" class="field-error" data-error-for="images"></p><div id="uploaded-images" class="uploaded-images"></div></div>
-      </div><div class="form-actions"><button type="submit" class="button button-dark">Salvar minha marca ${icon("arrow", 18)}</button><p>Ao salvar, a marca aparece em Explorar e em seu perfil local.</p></div>
-    </form><aside class="preview-panel"><div class="preview-heading"><span>Pré-visualização</span><p>Veja como sua marca pode aparecer na vitrine.</p></div><div id="form-preview"></div><p class="preview-note">Esta versão é demonstrativa. Os dados não são compartilhados entre usuários.</p></aside></section>`;
+      </div><div class="form-actions"><button type="submit" class="button button-dark">Publicar minha marca ${icon("arrow", 18)}</button><p>Nome, contato escolhido, produtos, preços, fotos e região de atendimento ficarão públicos. Seu e-mail de login permanece privado.</p></div>
+    </form><aside class="preview-panel"><div class="preview-heading"><span>Pré-visualização</span><p>Veja como sua marca pode aparecer na vitrine.</p></div><div id="form-preview"></div><p class="preview-note">Confira os dados antes de publicar. O login Google não comprova vínculo estudantil.</p></aside></section>`;
+}
+
+function productRow() {
+  const id = ++productRowId;
+  return `<div class="product-row"><div><label for="product-name-${id}">Produto ou serviço</label><input id="product-name-${id}" name="productName" maxlength="100" required placeholder="Ex.: Brownie tradicional"></div><div><label for="product-price-${id}">Preço (R$)</label><input id="product-price-${id}" name="productPrice" inputmode="decimal" maxlength="12" placeholder="Sob consulta"></div><button type="button" class="remove-product" data-remove-product aria-label="Remover este produto">${icon("close", 18)}</button></div>`;
+}
+
+function publishValues(form) {
+  const values = Object.fromEntries(new FormData(form).entries());
+  values.products = [...form.querySelectorAll(".product-row")].map(row => ({ name: row.querySelector('[name="productName"]').value.trim(), price: parsePrice(row.querySelector('[name="productPrice"]').value) }));
+  values.offerings = values.products.map(p => p.name).join("\n");
+  values.location = businessLocation;
+  return values;
 }
 
 function updateExplore() {
@@ -264,7 +333,9 @@ function updateExplore() {
   if (!search) return;
   const category = document.querySelector(".filter-chip.is-active")?.dataset.category || "";
   const filters = { query: search.value.trim(), category, unit: document.querySelector("#unit-filter").value };
-  const results = filterBusinesses(getAllBusinesses(), filters);
+  const activePreferences = document.querySelector("#use-preferences").checked ? preferences : { ...DEFAULT_PREFERENCES, location: preferences.location, neighborhood: preferences.neighborhood, city: preferences.city };
+  const results = rankBusinesses(filterBusinesses(allBusinesses(), filters), activePreferences);
+  if (document.querySelector("#sort-order").value === "name") results.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   document.querySelector("#results-count").textContent = `${results.length} ${results.length === 1 ? "negócio encontrado" : "negócios encontrados"}`;
   document.querySelector("#results-grid").innerHTML = results.length ? results.map(businessCard).join("") : emptyState("results");
   history.replaceState(null, "", exploreUrl(filters));
@@ -273,6 +344,8 @@ function updateExplore() {
 function setupExplore() {
   document.querySelector("#explore-query")?.addEventListener("input", updateExplore);
   document.querySelector("#unit-filter")?.addEventListener("change", updateExplore);
+  document.querySelector("#sort-order")?.addEventListener("change", updateExplore);
+  document.querySelector("#use-preferences")?.addEventListener("change", updateExplore);
   document.querySelectorAll(".filter-chip").forEach((button) => button.addEventListener("click", () => {
     document.querySelectorAll(".filter-chip").forEach((chip) => { chip.classList.toggle("is-active", chip === button); chip.setAttribute("aria-pressed", String(chip === button)); });
     updateExplore();
@@ -287,6 +360,7 @@ function setupExplore() {
 function clearFilters() {
   document.querySelector("#explore-query").value = "";
   document.querySelector("#unit-filter").value = "";
+  document.querySelector("#use-preferences").checked = false;
   document.querySelectorAll(".filter-chip").forEach((chip) => { const active = chip.dataset.category === ""; chip.classList.toggle("is-active", active); chip.setAttribute("aria-pressed", String(active)); });
   updateExplore();
   document.querySelector("#explore-query").focus();
@@ -302,14 +376,14 @@ function showToast(message) {
 function updatePreview() {
   const form = document.querySelector("#publish-form");
   if (!form) return;
-  const values = Object.fromEntries(new FormData(form).entries());
+  const values = publishValues(form);
   const example = {
     id: "preview", name: values.name?.trim() || "Sua marca aparece aqui", category: values.category || "Categoria",
     description: values.description?.trim() || "Conte sobre seu negócio para visualizar uma descrição.",
     shortDescription: values.description?.trim() || "Conte sobre seu negócio para visualizar uma descrição.",
-    unit: values.unit?.trim() || "Sua unidade ETEC", images: formImages
+    unit: values.unit?.trim() || "Sua unidade ETEC", images: formImages, products: values.products
   };
-  document.querySelector("#form-preview").innerHTML = `<div class="preview-card">${imageMarkup(example)}<div><span class="category-label">${escapeHTML(example.category)}</span><h3>${escapeHTML(example.name)}</h3><p>${escapeHTML(example.shortDescription)}</p><small>${icon("pin", 15)} ${escapeHTML(example.unit)}</small></div></div>`;
+  document.querySelector("#form-preview").innerHTML = `<div class="preview-card">${imageMarkup(example)}<div><span class="category-label">${escapeHTML(example.category)}</span><h3>${escapeHTML(example.name)}</h3><p>${escapeHTML(example.shortDescription)}</p><p class="business-price">${minimumPrice(example)}</p><small>${icon("pin", 15)} ${escapeHTML(example.unit)}</small></div></div>`;
   document.querySelector("#uploaded-images").innerHTML = formImages.map((source, index) => `<div class="uploaded-thumb"><img src="${escapeHTML(source)}" alt="Foto selecionada ${index + 1}" width="80" height="80"><button type="button" data-remove-image="${index}" aria-label="Remover foto ${index + 1}">${icon("close", 15)}</button></div>`).join("");
 }
 
@@ -321,7 +395,7 @@ async function prepareImage(file) {
     const image = new Image();
     image.src = objectUrl;
     await image.decode();
-    const scale = Math.min(1, 1200 / Math.max(image.naturalWidth, image.naturalHeight));
+    const scale = Math.min(1, 1000 / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -329,7 +403,9 @@ async function prepareImage(file) {
     context.fillStyle = "#faf6e9";
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.76);
+    const prepared = canvas.toDataURL("image/jpeg", 0.7);
+    if (prepared.length > 500000) throw new Error("Esta foto ainda ficou grande após a redução. Escolha uma imagem menor ou com menos detalhes.");
+    return prepared;
   } finally { URL.revokeObjectURL(objectUrl); }
 }
 
@@ -350,7 +426,9 @@ function showFormErrors(errors) {
 }
 
 function setupPublish() {
+  if (!document.querySelector("#publish-form")) return;
   formImages = [];
+  businessLocation = null;
   publishDirty = false;
   const form = document.querySelector("#publish-form");
   const handleEdit = (event) => {
@@ -358,7 +436,7 @@ function setupPublish() {
     updatePreview();
     const field = event.target;
     if (field?.name && field.getAttribute?.("aria-invalid") === "true") {
-      const message = validateBusiness(Object.fromEntries(new FormData(form).entries()))[field.name];
+      const message = validateBusiness(publishValues(form))[field.name];
       const error = form.querySelector(`[data-error-for="${field.name}"]`);
       if (error) error.textContent = message || "";
       if (!message) { field.removeAttribute("aria-invalid"); field.removeAttribute("aria-describedby"); }
@@ -367,6 +445,18 @@ function setupPublish() {
   };
   form.addEventListener("input", handleEdit);
   form.addEventListener("change", (event) => { if (event.target.name !== "images") handleEdit(event); });
+  document.querySelector("#add-product").addEventListener("click", () => {
+    if (form.querySelectorAll(".product-row").length >= 12) { showToast("Você pode informar até 12 produtos ou serviços."); return; }
+    document.querySelector("#product-rows").insertAdjacentHTML("beforeend", productRow());
+    form.querySelector(".product-row:last-child input").focus(); publishDirty = true;
+  });
+  document.querySelector("#product-rows").addEventListener("click", event => {
+    const button = event.target.closest("[data-remove-product]");
+    if (!button) return;
+    if (form.querySelectorAll(".product-row").length === 1) { showToast("Informe ao menos um produto ou serviço."); return; }
+    const row = button.closest(".product-row"), next = row.previousElementSibling || row.nextElementSibling;
+    row.remove(); next.querySelector("input").focus(); publishDirty = true; updatePreview();
+  });
   form.querySelector("#uploaded-images").addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-image]");
     if (!button) return;
@@ -386,17 +476,75 @@ function setupPublish() {
     } catch (failure) { error.textContent = failure.message || "Não foi possível ler esta imagem."; }
     event.target.value = "";
   });
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const values = Object.fromEntries(new FormData(form).entries());
+    const values = publishValues(form);
     const errors = validateBusiness(values);
     if (Object.keys(errors).length) { showFormErrors(errors); return; }
-    const result = saveBusiness(values, formImages);
-    if (!result.ok) { showFormErrors(result.errors); return; }
-    publishDirty = false;
-    location.hash = `${businessUrl(result.business.id)}?criado=1`;
+    const button = form.querySelector('[type="submit"]');
+    if (button.disabled) return;
+    button.disabled = true; button.textContent = "Publicando sua marca…";
+    try {
+      const business = await publishBusiness(values, formImages);
+      publishDirty = false;
+      location.hash = `${businessUrl(business.id)}?criado=1`;
+    } catch (error) {
+      if (form.isConnected) showFormErrors(error.errors || { form: error.message });
+    } finally { if (button.isConnected) { button.disabled = false; button.textContent = "Publicar minha marca"; } }
   });
   updatePreview();
+}
+
+function preferenceValues(form) {
+  const data = new FormData(form);
+  return { city: String(data.get("city") || "").trim(), neighborhood: String(data.get("neighborhood") || "").trim(), categories: data.getAll("interests"), tastes: String(data.get("tastes") || "").trim(), minPrice: String(data.get("minPrice") || "").trim(), maxPrice: String(data.get("maxPrice") || "").trim(), location: preferenceDraft.location };
+}
+
+function setupPreferences() {
+  const form = document.querySelector("#preferences-form");
+  if (!form) return;
+  form.addEventListener("input", () => { preferenceDraft = preferenceValues(form); });
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    const result = savePreferences(preferenceValues(form));
+    if (!result.ok) { document.querySelector("#preferences-error").textContent = Object.values(result.errors).join(" "); return; }
+    preferences = result.preferences; preferenceDraft = { ...preferences, categories: [...preferences.categories] };
+    render({ scrollTop: false });
+    showToast("Preferências salvas. Suas sugestões foram atualizadas.");
+    const target = document.querySelector("#recommended-title") || document.querySelector("main h1");
+    if (target) { target.tabIndex = -1; target.focus({ preventScroll: true }); target.scrollIntoView({ behavior: "auto", block: "start" }); }
+  });
+  document.querySelector("#reset-preferences").addEventListener("click", () => {
+    try { localStorage.removeItem(PREFERENCES_KEY); } catch { showToast("Não foi possível limpar as preferências neste navegador."); return; }
+    preferences = { ...DEFAULT_PREFERENCES, categories: [] }; preferenceDraft = { ...preferences, categories: [] };
+    render({ scrollTop: false }); showToast("Preferências removidas deste navegador.");
+  });
+  document.querySelector("#remove-consumer-location")?.addEventListener("click", () => {
+    preferenceDraft.location = null;
+    document.querySelector("#consumer-location-state").textContent = "Localização removida. Salve suas preferências para confirmar.";
+    document.querySelector("#remove-consumer-location").hidden = true;
+  });
+}
+
+function requestLocation(kind, button) {
+  const target = document.querySelector(kind === "consumer" ? "#consumer-location-state" : "#business-location-state");
+  if (!navigator.geolocation) { target.textContent = "Este navegador não oferece localização. Informe cidade e bairro para continuar."; return; }
+  button.disabled = true; target.textContent = "Aguardando sua permissão para obter uma região aproximada…";
+  navigator.geolocation.getCurrentPosition(position => {
+    button.disabled = false;
+    if (!button.isConnected) return;
+    const location = approximateLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+    if (kind === "consumer") { preferenceDraft.location = location; document.querySelector("#remove-consumer-location").hidden = false; }
+    else { businessLocation = location; publishDirty = true; document.querySelector("#remove-business-location").hidden = false; }
+    target.textContent = kind === "consumer" ? "Região aproximada definida. Salve suas preferências para atualizar as sugestões." : "Região aproximada definida. Ela será exibida como referência de atendimento quando publicar.";
+  }, error => {
+    button.disabled = false;
+    if (target.isConnected) target.textContent = error.code === 1 ? "Localização não permitida. Você pode continuar informando cidade e bairro." : "Não foi possível obter sua região. Tente novamente ou informe cidade e bairro.";
+  }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 });
+}
+
+function renderPrivacy() {
+  return `<section class="page-heading page-width"><p class="section-intro">Transparência</p><h1>Privacidade e uso dos dados</h1></section><article class="page-width privacy-copy"><h2>Sua conta</h2><p>Ao entrar com Google, o site recebe seu identificador de conta, nome e e-mail confirmados pelo Google. Esses dados ficam no banco do projeto para identificar sua conta e vincular seus anúncios. Sua senha Google nunca é solicitada ou armazenada por este site. O e-mail de acesso não é exibido publicamente.</p><h2>O que aparece na vitrine</h2><p>Ao publicar, o nome do responsável, a unidade ETEC informada, o contato escolhido, fotos, descrições, produtos, preços, cidade e bairro de atendimento ficam públicos. Não informe seu endereço residencial completo. Se adicionar localização ao anúncio, ela será arredondada para uma região de cerca de 1 km.</p><h2>Sua localização e suas preferências</h2><p>A localização de quem procura negócios só é acessada após uma ação e a permissão do navegador. Ela é arredondada e fica neste navegador, junto dos gostos, categorias, orçamento e favoritos; não é enviada ao banco do projeto. Você pode removê-la em Local e preferências. Distâncias são aproximações em linha reta entre regiões, sem cálculo de trajeto.</p><h2>Sessão e serviços</h2><p>Uma sessão protegida identifica sua conta por até sete dias. Ao sair, essa sessão é invalidada. O serviço de login é fornecido pelo Google, e a hospedagem e o banco compartilhado são fornecidos pelo Cloudflare no plano gratuito, sujeitos aos limites desses serviços.</p><h2>Comunidade estudantil e exemplos</h2><p>A plataforma é destinada à comunidade ETEC. O login Google e a seleção de unidade não comprovam vínculo estudantil. Negócios marcados como exemplos demonstrativos, incluindo seus preços e regiões, são fictícios.</p><a class="button button-dark" href="#/preferencias">Gerenciar minhas preferências</a></article>`;
 }
 
 function render({ focusMain = false, scrollTop = true } = {}) {
@@ -407,12 +555,20 @@ function render({ focusMain = false, scrollTop = true } = {}) {
   else if (path === "/favoritos") { content = renderFavorites(); active = "favoritos"; }
   else if (path === "/perfil") { content = renderProfile(); active = "perfil"; }
   else if (path === "/divulgar") { content = renderPublish(); active = ""; }
+  else if (path === "/preferencias") { content = renderPreferences(true); active = ""; }
+  else if (path === "/privacidade") { content = renderPrivacy(); active = ""; }
   else if (path.startsWith("/negocio/")) { let id = ""; try { id = decodeURIComponent(path.slice(9)); } catch {} content = renderDetail(id, params); active = "explorar"; }
   else { content = `<section class="page-width not-found"><h1>Página não encontrada</h1><a class="button button-dark" href="#/inicio">Voltar ao início</a></section>`; active = ""; }
   app.innerHTML = shell(content, active);
-  document.title = `${path === "/inicio" || path === "/" ? "Raízes Empreendedoras" : path === "/explorar" ? "Explorar negócios" : path === "/favoritos" ? "Favoritos" : path === "/perfil" ? "Perfil empreendedor" : path === "/divulgar" ? "Divulgar minha marca" : "Negócio"} — Raízes Empreendedoras`;
+  const titles = { "/explorar": "Explorar negócios", "/favoritos": "Favoritos", "/perfil": "Perfil empreendedor", "/divulgar": "Divulgar minha marca", "/preferencias": "Local e preferências", "/privacidade": "Privacidade" };
+  document.title = path === "/inicio" || path === "/" ? "Raízes Empreendedoras — Entre Marcas" : `${titles[path] || "Negócio"} — Raízes Empreendedoras`;
   if (path === "/explorar") setupExplore();
   if (path === "/divulgar") setupPublish();
+  setupPreferences();
+  setupGoogleLogin(document.querySelector("#google-signin"), () => { render({ scrollTop: false }); showToast("Conta Google conectada. Seu perfil está pronto."); }, message => { const target = document.querySelector("#login-error"); if (target) target.textContent = message; });
+  document.querySelector("#retry-account")?.addEventListener("click", async event => { event.target.disabled = true; await loadAccount(); render({ scrollTop: false }); });
+  document.querySelector("#sign-out")?.addEventListener("click", async event => { event.target.disabled = true; try { await signOut(); publishDirty = false; render(); showToast("Você saiu da conta."); } catch (error) { event.target.disabled = false; showToast(error.message); } });
+  document.querySelector("#remove-business-location")?.addEventListener("click", () => { businessLocation = null; publishDirty = true; document.querySelector("#business-location-state").textContent = "Localização removida. Somente cidade e bairro serão exibidos."; document.querySelector("#remove-business-location").hidden = true; });
   document.querySelector("#home-search")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const query = document.querySelector("#home-query").value.trim();
@@ -427,6 +583,8 @@ function render({ focusMain = false, scrollTop = true } = {}) {
 }
 
 document.addEventListener("click", (event) => {
+  const geolocate = event.target.closest("[data-geolocate]");
+  if (geolocate) { requestLocation(geolocate.dataset.geolocate, geolocate); return; }
   const skip = event.target.closest("[data-skip]");
   if (skip) { event.preventDefault(); document.querySelector("#main-content")?.focus(); return; }
   const button = event.target.closest("[data-favorite]");
@@ -444,7 +602,7 @@ document.addEventListener("click", (event) => {
     else document.querySelectorAll(`[data-favorite="${CSS.escape(button.dataset.favorite)}"]`).forEach((item) => {
       item.classList.toggle("is-saved", saved);
       item.setAttribute("aria-pressed", String(saved));
-      const business = getAllBusinesses().find((entry) => entry.id === button.dataset.favorite);
+      const business = allBusinesses().find((entry) => entry.id === button.dataset.favorite);
       item.setAttribute("aria-label", `${saved ? "Remover" : "Adicionar"} ${business?.name || "marca"} ${saved ? "dos" : "aos"} favoritos`);
       item.innerHTML = icon("heart", 21, saved ? "currentColor" : "none");
     });
@@ -472,3 +630,4 @@ window.addEventListener("beforeunload", (event) => {
 if (!location.hash) history.replaceState(null, "", "#/inicio");
 previousHash = location.hash;
 render();
+loadAccount().then(() => { if (!publishDirty) render({ scrollTop: false }); });

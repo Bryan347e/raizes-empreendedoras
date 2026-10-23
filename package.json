@@ -1,0 +1,18 @@
+{
+  "name": "raizes-empreendedoras",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
+    "build:cloudflare": "node scripts/build-cloudflare.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "jose": "^6.2.13"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

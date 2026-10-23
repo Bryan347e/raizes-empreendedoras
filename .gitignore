@@ -1,0 +1,9 @@
+.agents/
+*.log
+publicacao-github-pages/
+raizes-empreendedoras-github-pages.zip
+node_modules/
+publicacao-cloudflare/
+raizes-cloudflare.zip
+.env*
+.dev.vars*
