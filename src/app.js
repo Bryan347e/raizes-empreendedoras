@@ -1,10 +1,10 @@
 import {
   CATEGORIES, UNITS, DEMO_BUSINESSES, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
-  filterBusinesses, validateBusiness
-} from "./catalog.js";
-import { account, loadAccount, publishBusiness, signOut, setupGoogleLogin } from "./api.js";
-import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js";
+  filterBusinesses, validateBusiness, groupBusinessesByResponsible
+} from "./catalog.js?v=20261023-3";
+import { account, loadAccount, publishBusiness, ownedBusinessIds } from "./api.js?v=20261023-3";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261023-3";
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -110,23 +110,23 @@ function shell(content, active = "") {
           ${navLink("Início", "inicio", "home", active)}
           ${navLink("Explorar", "explorar", "search", active)}
           ${navLink("Favoritos", "favoritos", "heart", active)}
-          ${navLink("Meu perfil", "perfil", "user", active)}
+          ${navLink("Meus anúncios", "perfil", "user", active)}
         </nav>
         <a href="#/divulgar" class="header-cta">Divulgar minha marca ${icon("arrow", 17)}</a>
       </div>
     </header>
-    <main id="main-content" tabindex="-1">${account.error && !account.loading ? `<div class="page-width service-notice" role="status"><strong>Contas e anúncios compartilhados indisponíveis no momento.</strong><p>${escapeHTML(account.error)} Os exemplos e suas preferências continuam disponíveis. <a class="text-link" href="#/perfil">Ver acesso à conta</a></p></div>` : ""}${content}</main>
+    <main id="main-content" tabindex="-1">${account.error && !account.loading ? `<div class="page-width service-notice" role="status"><strong>A vitrine compartilhada está indisponível no momento.</strong><p>${escapeHTML(account.error)} Os exemplos e suas preferências continuam disponíveis. <a class="text-link" href="#/perfil">Ver meus anúncios</a></p></div>` : ""}${content}</main>
     <footer class="site-footer">
       <div class="page-width footer-grid">
         <div><p class="footer-name">Raízes Empreendedoras</p><p>Entre marcas, ideias e pessoas da comunidade ETEC.</p></div>
-        <div><p class="footer-label">Da comunidade ETEC</p><p>Exemplos, preços e locais demonstrativos estão identificados. Novos anúncios são vinculados à conta Google quando o serviço está ativo. Favoritos e preferências ficam neste navegador.</p><a class="text-link" href="#/privacidade">Privacidade e uso dos dados</a></div>
+        <div><p class="footer-label">Da comunidade ETEC</p><p>Exemplos, preços e locais demonstrativos estão identificados. Cada anúncio identifica o responsável informado. Não é preciso criar conta. Favoritos, preferências e a lista dos seus anúncios ficam neste navegador.</p><a class="text-link" href="#/privacidade">Privacidade e uso dos dados</a></div>
       </div>
     </footer>
     <nav class="bottom-nav" aria-label="Navegação no celular">
       ${navLink("Início", "inicio", "home", active)}
       ${navLink("Explorar", "explorar", "search", active)}
       ${navLink("Favoritos", "favoritos", "heart", active)}
-      ${navLink("Perfil", "perfil", "user", active)}
+      ${navLink("Minhas lojas", "perfil", "user", active)}
     </nav>`;
 }
 
@@ -137,6 +137,7 @@ function businessCard(business) {
       <div class="card-topline"><span class="category-label">${escapeHTML(business.category)}</span>${favoriteButton(business)}</div>
       <h3><a href="${businessUrl(business.id)}">${escapeHTML(business.name)}</a></h3>
       <p class="card-description">${escapeHTML(business.shortDescription || business.description)}</p>
+      <p class="card-author">${icon("user", 16)}<span>Por ${escapeHTML(business.student)}</span></p>
       <p class="card-unit">${icon("pin", 16)}<span>${escapeHTML(business.unit)}</span></p>
       <p class="business-locality">${escapeHTML([business.neighborhood, business.city].filter(Boolean).join(" · ") || "Região não informada")}${distanceMarkup(business)}</p>
       <p class="business-price">${minimumPrice(business)}</p>
@@ -269,13 +270,9 @@ function renderFavorites() {
 }
 
 function renderProfile() {
-  const items = account.user ? account.businesses.filter(b => b.ownerId === account.user.id) : [];
-  const legacy = getCreatedBusinesses();
-  return `<section class="page-heading page-width"><p class="section-intro">Seu espaço</p><h1>Perfil empreendedor</h1><p>Entre com uma conta Google para divulgar e acompanhar seus negócios.</p></section>${account.user ? `<section class="page-width profile-layout"><aside class="profile-panel"><div class="profile-avatar">${icon("user", 36)}</div><h2>${escapeHTML(account.user.name)}</h2><p class="account-email">${escapeHTML(account.user.email)}</p><p>Seu e-mail identifica a conta e não aparece na vitrine. O login Google não comprova vínculo com uma ETEC.</p><a class="button button-gold" href="#/divulgar">Divulgar minha marca ${icon("arrow", 18)}</a><button type="button" class="button button-light" id="sign-out">Sair da conta</button></aside><div class="profile-content"><div class="section-heading"><h2>Meus negócios <span class="count-badge">${items.length}</span></h2></div>${items.length ? `<div class="business-grid">${items.map(businessCard).join("")}</div>` : '<div class="empty-state"><h3>Sua primeira marca começa aqui</h3><p>Ao publicar, o negócio será vinculado a esta conta e ficará disponível na vitrine para outras pessoas.</p><a class="button button-dark" href="#/divulgar">Divulgar minha marca</a></div>'}</div></section>` : `<section class="page-width auth-section">${renderLogin()}</section>`}${legacy.length ? `<section class="page-width legacy-section"><h2>Anúncios antigos deste aparelho</h2><p>Estes cadastros foram feitos na demonstração anterior, sem conta. Eles foram preservados neste navegador e não foram vinculados automaticamente a um e-mail.</p><div class="business-grid">${legacy.map(businessCard).join("")}</div></section>` : ""}`;
-}
-
-function renderLogin() {
-  return `<div class="auth-card"><div class="auth-illustration">${icon("sprout", 44)}</div><h2>Uma conta para suas ideias crescerem</h2><p>Use uma conta Google que você já possui. Na primeira entrada, criamos seu perfil com o nome e o e-mail confirmados pelo Google.</p>${account.loading ? '<p role="status">Verificando acesso à conta…</p>' : account.authReady ? '<div id="google-signin" class="google-signin"><p role="status">Preparando o login Google…</p></div>' : '<div class="service-notice"><strong>As contas ainda estão sendo ativadas neste endereço.</strong><p>Você já pode explorar os negócios e personalizar suas recomendações. A divulgação com conta Google estará disponível quando a ativação terminar.</p></div>'}<p id="login-error" class="field-error" role="alert">${escapeHTML(account.error)}</p><button class="clear-button" type="button" id="retry-account">Tentar novamente</button><p class="field-hint">Seu e-mail de acesso fica privado. O contato público da marca é informado separadamente. Entrar com Google não verifica se você estuda em uma ETEC.</p><a class="text-link" href="#/privacidade">Como usamos seus dados</a></div>`;
+  const remembered = new Set([...ownedBusinessIds(), ...getCreatedBusinesses().map(b => b.id)]);
+  const groups = groupBusinessesByResponsible(allBusinesses().filter(b => remembered.has(b.id)));
+  return `<section class="page-heading page-width"><p class="section-intro">Seu espaço</p><h1>Meus anúncios</h1><p>As lojas que este navegador lembra, separadas pelo responsável informado.</p></section><section class="page-width listing-section"><div class="service-notice"><strong>Sem conta e sem login.</strong><p>Esta lista fica apenas neste navegador. Em outro aparelho ela pode estar vazia. Se outras pessoas publicarem neste mesmo navegador, os anúncios serão organizados pelos nomes e unidades informados. Os nomes não comprovam identidade nem vínculo com a ETEC.</p><a class="button button-dark" href="#/divulgar">Divulgar minha marca</a></div>${groups.length ? groups.map(group => `<section class="responsible-group"><div class="section-heading"><div><p class="section-intro">Responsável informado</p><h2>${escapeHTML(group.student)} <span class="count-badge">${group.businesses.length}</span></h2><p>${escapeHTML(group.unit)}</p></div></div><div class="business-grid">${group.businesses.map(businessCard).join("")}</div></section>`).join("") : '<div class="empty-state"><h2>Você ainda não publicou neste navegador</h2><p>Informe o responsável no cadastro da loja. Os anúncios públicos de outras pessoas ficam em Explorar.</p><a class="text-link" href="#/explorar">Explorar negócios</a></div>'}</section>`;
 }
 
 function renderDetail(id, params) {
@@ -283,7 +280,7 @@ function renderDetail(id, params) {
   if (!business) return `<section class="page-width not-found"><div class="empty-state">${icon("search", 42)}<h1>Negócio não encontrado</h1><p>O endereço pode estar incorreto ou a marca pode ter sido removida deste navegador.</p><a class="button button-dark" href="#/explorar">Explorar negócios</a></div></section>`;
   const otherImages = business.images?.slice(1).filter(safeImageSrc) || [];
   return `<div class="page-width detail-page"><a href="#/explorar" class="back-link">${icon("back", 18)} Voltar para explorar</a>
-    ${params.get("criado") === "1" ? `<div class="success-banner" role="status">${icon("check", 22)}<span><strong>Marca salva com sucesso.</strong> Ela já aparece na vitrine e pode ser encontrada pela busca.</span></div>` : ""}
+    ${params.get("criado") === "1" ? `<div class="success-banner" role="status">${icon("check", 22)}<span><strong>Marca salva com sucesso.</strong> ${business.shared ? "Ela já aparece na vitrine pública e pode ser encontrada pela busca." : "Ela foi salva apenas neste navegador, no modo demonstrativo."}${params.get("aviso") === "1" ? " O navegador não conseguiu lembrar este anúncio em Meus anúncios. Guarde o link para encontrá-lo novamente." : ""}</span></div>` : ""}
     <h1 class="sr-only">${escapeHTML(business.name)}</h1>
     <div class="detail-grid"><div class="detail-main">
       <div class="detail-photo">${imageMarkup(business)}</div>
@@ -294,9 +291,9 @@ function renderDetail(id, params) {
 }
 
 function renderPublish() {
-  const heading = `<section class="page-heading page-width"><p class="section-intro">Faça parte da vitrine</p><h1>Divulgar minha marca</h1><p>Seu anúncio fica vinculado à sua conta e pode ser descoberto por outras pessoas.</p></section>`;
-  if (!account.user) return `${heading}<section class="page-width auth-section">${renderLogin()}</section>`;
+  const heading = `<section class="page-heading page-width"><p class="section-intro">Faça parte da vitrine</p><h1>Divulgar minha marca</h1><p>Publique sem criar conta. Informe quem é responsável pela loja para que cada anúncio tenha seu próprio autor.</p></section>`;
   return `${heading}
+    ${!account.shared ? `<div class="page-width service-notice" role="status">${account.loading ? "Conectando à vitrine compartilhada…" : "Modo demonstrativo local: os cadastros ficam apenas neste navegador."}</div>` : ""}
     <section class="page-width publish-layout"><form id="publish-form" class="publish-form" novalidate>
       <div class="form-intro"><h2>Informações do negócio</h2><p>Campos com <span aria-hidden="true">*</span> são obrigatórios.</p></div>
       <div id="form-error-summary" class="form-error-summary" role="alert" tabindex="-1" hidden></div>
@@ -307,12 +304,12 @@ function renderPublish() {
         <fieldset class="form-field full product-editor"><legend>Produtos ou serviços e preços <span aria-hidden="true">*</span></legend><p class="field-hint">Informe o valor de cada item para que ele seja recomendado dentro do orçamento. Deixe o preço vazio quando for sob consulta.</p><div id="product-rows">${productRow()}</div><button type="button" class="clear-button" id="add-product">Adicionar produto ou serviço</button><p id="error-products" class="field-error" data-error-for="products"></p><p id="error-offerings" class="field-error" data-error-for="offerings"></p></fieldset>
         <div class="form-field"><label for="business-city">Cidade de atendimento <span aria-hidden="true">*</span></label><input id="business-city" name="city" maxlength="80" value="São Paulo" required><p id="error-city" class="field-error" data-error-for="city"></p></div><div class="form-field"><label for="business-neighborhood">Bairro de atendimento <span aria-hidden="true">*</span></label><input id="business-neighborhood" name="neighborhood" maxlength="80" required placeholder="Ex.: Santana"><p id="error-neighborhood" class="field-error" data-error-for="neighborhood"></p></div>
         <div class="form-field full"><button type="button" class="location-button" data-geolocate="business">${icon("pin", 18)} Usar a região de atendimento atual</button><p id="business-location-state" class="field-hint" role="status">Opcional. A localização será publicada arredondada para uma região de cerca de 1 km, para ajudar na busca por proximidade. Se atende de casa, informe apenas cidade e bairro se preferir.</p><button type="button" class="clear-button" id="remove-business-location" hidden>Remover localização</button><p id="error-location" class="field-error" data-error-for="location"></p></div><div class="form-field full"><label for="business-tags">Estilo e características da marca</label><input id="business-tags" name="tags" maxlength="160" placeholder="Ex.: artesanal, chocolate, presentes"><p class="field-hint">Ajuda a combinar seu negócio com os gostos de quem visita.</p></div>
-        <div class="form-field full"><label for="business-student">Aluno responsável <span aria-hidden="true">*</span></label><input id="business-student" name="student" type="text" maxlength="90" autocomplete="name" required value="${escapeHTML(account.user.name)}" placeholder="Seu nome"><p id="error-student" class="field-error" data-error-for="student"></p></div>
+        <div class="form-field full"><label for="business-student">Aluno responsável <span aria-hidden="true">*</span></label><input id="business-student" name="student" type="text" maxlength="90" autocomplete="name" required value="" placeholder="Seu nome"><p id="error-student" class="field-error" data-error-for="student"></p></div>
         <div class="form-field full"><label for="business-unit">Unidade ETEC <span aria-hidden="true">*</span></label><select id="business-unit" name="unit" required><option value="">Selecione sua unidade</option>${UNITS.map((unit) => `<option value="${escapeHTML(unit)}">${escapeHTML(unit)}</option>`).join("")}</select><p class="field-hint">Unidades da cidade de São Paulo. A seleção não verifica vínculo estudantil.</p><p id="error-unit" class="field-error" data-error-for="unit"></p></div>
         <div class="form-field full"><label for="business-contact">Contato <span aria-hidden="true">*</span></label><input id="business-contact" name="contact" type="text" maxlength="140" required placeholder="E-mail, perfil profissional ou outro contato"><p class="field-hint">Será exibido na página da marca. Confira antes de salvar.</p><p id="error-contact" class="field-error" data-error-for="contact"></p></div>
         <div class="form-field full"><label for="business-images">Imagens do negócio</label><label class="upload-box" for="business-images">${icon("image", 28)}<strong>Adicione até 3 fotos</strong><span>JPG, PNG ou WebP. As imagens são reduzidas antes de salvar.</span><input id="business-images" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><p id="error-images" class="field-error" data-error-for="images"></p><div id="uploaded-images" class="uploaded-images"></div></div>
-      </div><div class="form-actions"><button type="submit" class="button button-dark">Publicar minha marca ${icon("arrow", 18)}</button><p>Nome, contato escolhido, produtos, preços, fotos e região de atendimento ficarão públicos. Seu e-mail de login permanece privado.</p></div>
-    </form><aside class="preview-panel"><div class="preview-heading"><span>Pré-visualização</span><p>Veja como sua marca pode aparecer na vitrine.</p></div><div id="form-preview"></div><p class="preview-note">Confira os dados antes de publicar. O login Google não comprova vínculo estudantil.</p></aside></section>`;
+      </div><div class="form-actions"><button type="submit" class="button button-dark">Publicar minha marca ${icon("arrow", 18)}</button><p>Nome, contato escolhido, produtos, preços, fotos e região de atendimento ficarão públicos. O nome do responsável é declarado por quem publica e não é verificado.</p></div>
+    </form><aside class="preview-panel"><div class="preview-heading"><span>Pré-visualização</span><p>Veja como sua marca pode aparecer na vitrine.</p></div><div id="form-preview"></div><p class="preview-note">Confira os dados antes de publicar. Nome e unidade informados não comprovam identidade nem vínculo estudantil.</p></aside></section>`;
 }
 
 function productRow() {
@@ -487,7 +484,7 @@ function setupPublish() {
     try {
       const business = await publishBusiness(values, formImages);
       publishDirty = false;
-      location.hash = `${businessUrl(business.id)}?criado=1`;
+      location.hash = `${businessUrl(business.id)}?criado=1${business.localTrackingFailed ? "&aviso=1" : ""}`;
     } catch (error) {
       if (form.isConnected) showFormErrors(error.errors || { form: error.message });
     } finally { if (button.isConnected) { button.disabled = false; button.textContent = "Publicar minha marca"; } }
@@ -548,7 +545,7 @@ function requestLocation(kind, button) {
 }
 
 function renderPrivacy() {
-  return `<section class="page-heading page-width"><p class="section-intro">Transparência</p><h1>Privacidade e uso dos dados</h1></section><article class="page-width privacy-copy"><h2>Sua conta</h2><p>Ao entrar com Google, o site recebe seu identificador de conta, nome e e-mail confirmados pelo Google. Esses dados ficam no banco do projeto para identificar sua conta e vincular seus anúncios. Sua senha Google nunca é solicitada ou armazenada por este site. O e-mail de acesso não é exibido publicamente.</p><h2>O que aparece na vitrine</h2><p>Ao publicar, o nome do responsável, a unidade ETEC informada, o contato escolhido, fotos, descrições, produtos, preços, cidade e bairro de atendimento ficam públicos. Não informe seu endereço residencial completo. Se adicionar localização ao anúncio, ela será arredondada para uma região de cerca de 1 km.</p><h2>Sua localização e suas preferências</h2><p>A localização de quem procura negócios só é acessada após uma ação e a permissão do navegador. Ela é arredondada e fica neste navegador, junto dos gostos, categorias, orçamento e favoritos; não é enviada ao banco do projeto. Você pode removê-la em Local e preferências. Distâncias são aproximações em linha reta entre regiões, sem cálculo de trajeto.</p><h2>Sessão e serviços</h2><p>Uma sessão protegida identifica sua conta por até sete dias. Ao sair, essa sessão é invalidada. O serviço de login é fornecido pelo Google, e a hospedagem e o banco compartilhado são fornecidos pelo Cloudflare no plano gratuito, sujeitos aos limites desses serviços.</p><h2>Comunidade estudantil e exemplos</h2><p>A plataforma é destinada à comunidade ETEC. O login Google e a seleção de unidade não comprovam vínculo estudantil. Negócios marcados como exemplos demonstrativos, incluindo seus preços e regiões, são fictícios.</p><a class="button button-dark" href="#/preferencias">Gerenciar minhas preferências</a></article>`;
+  return `<section class="page-heading page-width"><p class="section-intro">Transparência</p><h1>Privacidade e uso dos dados</h1></section><article class="page-width privacy-copy"><h2>Publicação sem conta</h2><p>Não é necessário fazer login ou criar conta. O site não recebe e-mail de acesso, senha ou dados de uma conta Google. O nome do responsável é informado no cadastro de cada loja e não representa identidade verificada.</p><h2>O que fica público</h2><p>Nome do responsável, unidade ETEC, contato escolhido, fotos, descrições, produtos, preços, cidade e bairro ficam disponíveis aos visitantes. O contato pode ser um perfil profissional; não é obrigatório informar e-mail pessoal. Não publique endereço residencial completo. A localização opcional do negócio é arredondada para uma região de cerca de 1 km.</p><h2>Meus anúncios</h2><p>O navegador guarda apenas os identificadores dos anúncios que publicou para organizar esta lista por responsável. A lista não é uma conta, não concede acesso privado e não é recuperada automaticamente em outro aparelho. Apagar os dados do navegador remove essa lembrança, mas não remove o anúncio público. A versão atual não permite editar ou excluir anúncios de outras pessoas.</p><h2>Local e preferências</h2><p>Sua localização só é acessada após clique e permissão. Ela é arredondada e fica neste navegador com gostos, categorias, orçamento e favoritos; não é enviada ao banco do projeto. Você pode removê-la em Local e preferências. Distâncias são aproximações em linha reta.</p><h2>Hospedagem e limites</h2><p>A hospedagem e o banco público usam o plano gratuito do Cloudflare. Para reduzir abuso, há um limite de 30 publicações diárias por acesso de rede. É usado um resumo criptográfico diário do endereço de rede, sem guardar o IP original no banco do projeto. A hospedagem pode processar dados técnicos da conexão conforme suas próprias políticas.</p><h2>Comunidade e exemplos</h2><p>A plataforma é destinada à comunidade ETEC. Nome e unidade declarados não verificam vínculo estudantil. Exemplos demonstrativos, preços e regiões são fictícios. Os únicos contatos exibidos nos anúncios são os que seus responsáveis informarem para suas lojas.</p><a class="button button-dark" href="#/preferencias">Gerenciar minhas preferências</a></article>`;
 }
 
 function render({ focusMain = false, scrollTop = true } = {}) {
@@ -564,14 +561,12 @@ function render({ focusMain = false, scrollTop = true } = {}) {
   else if (path.startsWith("/negocio/")) { let id = ""; try { id = decodeURIComponent(path.slice(9)); } catch {} content = renderDetail(id, params); active = "explorar"; }
   else { content = `<section class="page-width not-found"><h1>Página não encontrada</h1><a class="button button-dark" href="#/inicio">Voltar ao início</a></section>`; active = ""; }
   app.innerHTML = shell(content, active);
-  const titles = { "/explorar": "Explorar negócios", "/favoritos": "Favoritos", "/perfil": "Perfil empreendedor", "/divulgar": "Divulgar minha marca", "/preferencias": "Local e preferências", "/privacidade": "Privacidade" };
+  const titles = { "/explorar": "Explorar negócios", "/favoritos": "Favoritos", "/perfil": "Meus anúncios", "/divulgar": "Divulgar minha marca", "/preferencias": "Local e preferências", "/privacidade": "Privacidade" };
   document.title = path === "/inicio" || path === "/" ? "Raízes Empreendedoras — Entre Marcas" : `${titles[path] || "Negócio"} — Raízes Empreendedoras`;
   if (path === "/explorar") setupExplore();
   if (path === "/divulgar") setupPublish();
   setupPreferences();
-  setupGoogleLogin(document.querySelector("#google-signin"), () => { render({ scrollTop: false }); showToast("Conta Google conectada. Seu perfil está pronto."); }, message => { const target = document.querySelector("#login-error"); if (target) target.textContent = message; });
   document.querySelector("#retry-account")?.addEventListener("click", async event => { event.target.disabled = true; await loadAccount(); render({ scrollTop: false }); });
-  document.querySelector("#sign-out")?.addEventListener("click", async event => { event.target.disabled = true; try { await signOut(); publishDirty = false; render(); showToast("Você saiu da conta."); } catch (error) { event.target.disabled = false; showToast(error.message); } });
   document.querySelector("#remove-business-location")?.addEventListener("click", () => { businessLocation = null; publishDirty = true; document.querySelector("#business-location-state").textContent = "Localização removida. Somente cidade e bairro serão exibidos."; document.querySelector("#remove-business-location").hidden = true; });
   document.querySelector("#home-search")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -635,3 +630,4 @@ if (!location.hash) history.replaceState(null, "", "#/inicio");
 previousHash = location.hash;
 render();
 loadAccount().then(() => { if (!publishDirty) render({ scrollTop: false }); });
+

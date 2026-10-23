@@ -24,8 +24,9 @@ Revista digital e vitrine demonstrativa de negócios de estudantes das ETECs.
 
 Este site estático pode ser publicado gratuitamente em um repositório público no GitHub Pages. Em Settings → Pages, selecione Deploy from a branch, a branch main e a pasta / (root).
 
-Os negócios iniciais, preços e regiões são demonstrativos. Favoritos, preferências e localização de visitantes ficam no navegador. Contas Google e anúncios compartilhados precisam da versão Cloudflare com banco D1 e um Client ID Google configurados. O GitHub Pages hospeda apenas os recursos estáticos. O login Google e a seleção da unidade não comprovam vínculo estudantil.
+Os negócios iniciais, preços e regiões são demonstrativos. A publicação não exige login e cada loja identifica seu responsável declarado. Anúncios compartilhados usam a versão Cloudflare com banco D1: https://raizes-empreendedoras.pages.dev/ . O link do GitHub encaminha para esse endereço. Favoritos, preferências e a lista de Meus anúncios ficam neste navegador. Nomes e unidades declarados não comprovam identidade ou vínculo estudantil.
 `, "utf8");
 
 console.log(`Publicação preparada em: ${destination}`);
 console.log(`${siteFiles.length} arquivos do site e README.md, sem configurações locais do computador.`);
+

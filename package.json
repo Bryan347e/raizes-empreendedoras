@@ -9,10 +9,8 @@
     "build:cloudflare": "node scripts/build-cloudflare.mjs",
     "test": "node --test"
   },
-  "dependencies": {
-    "jose": "^6.2.13"
-  },
   "devDependencies": {
     "esbuild": "^0.28.2"
   }
 }
+

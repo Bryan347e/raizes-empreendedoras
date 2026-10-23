@@ -210,9 +210,19 @@ export function filterBusinesses(businesses, filters = {}) {
   return businesses.filter((business) => {
     const matchesCategory = !filters.category || business.category === filters.category;
     const matchesUnit = !filters.unit || business.unit === filters.unit;
-    const haystack = normalizeText([business.name, business.category, business.description, business.shortDescription, ...business.offerings].join(" "));
+    const haystack = normalizeText([business.name, business.category, business.description, business.shortDescription, business.student, ...business.offerings].join(" "));
     return matchesCategory && matchesUnit && (!query || haystack.includes(query));
   });
+}
+
+export function groupBusinessesByResponsible(businesses) {
+  const groups = new Map();
+  for (const business of businesses) {
+    const key = `${normalizeText(business.student)}::${normalizeText(business.unit)}`;
+    if (!groups.has(key)) groups.set(key, { student: business.student, unit: business.unit, businesses: [] });
+    groups.get(key).businesses.push(business);
+  }
+  return [...groups.values()].sort((a, b) => a.student.localeCompare(b.student, 'pt-BR'));
 }
 
 export function validateBusiness(values) {
@@ -258,6 +268,11 @@ export function saveBusiness(values, images = [], storage = browserStorage()) {
     student: values.student.trim(),
     unit: values.unit.trim(),
     contact: values.contact.trim(),
+    city: String(values.city || '').trim(),
+    neighborhood: String(values.neighborhood || '').trim(),
+    location: values.location || null,
+    products: values.products,
+    tags: String(values.tags || '').trim(),
     images,
     demo: false,
     featured: false,
@@ -270,3 +285,4 @@ export function saveBusiness(values, images = [], storage = browserStorage()) {
     return { ok: false, errors: { form: "Não foi possível salvar neste navegador. Tente imagens menores ou libere espaço de armazenamento." } };
   }
 }
+

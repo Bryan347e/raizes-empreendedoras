@@ -1,11 +1,23 @@
-export const account = { loading: true, user: null, authReady: false, clientId: null, shared: false, businesses: [], error: "" };
+import { getCreatedBusinesses, saveBusiness } from './catalog.js?v=20261023-3';
+export const account = { loading: true, shared: false, businesses: [], error: '' };
+const OWNED_KEY = 'raizes:published-ids:v1';
+export function ownedBusinessIds(storage) {
+  try {
+    const values = JSON.parse((storage || globalThis.localStorage).getItem(OWNED_KEY) || '[]');
+    return Array.isArray(values) ? values.filter(id => typeof id === 'string') : [];
+  } catch { return []; }
+}
+function rememberBusiness(id) {
+  try { localStorage.setItem(OWNED_KEY, JSON.stringify([...new Set([...ownedBusinessIds(), id])])); return true; }
+  catch { return false; }
+}
 
 async function request(path, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const response = await fetch(`api/${path}`, { credentials: "same-origin", ...options, signal: controller.signal, headers: { ...(options.body ? { "content-type": "application/json", "x-raizes-request": "1" } : {}), ...options.headers } });
-    if (!(response.headers.get("content-type") || "").includes("application/json")) throw new Error("As contas e os anúncios compartilhados ainda não estão disponíveis neste endereço.");
+    const response = await fetch(`api/${path}`, { credentials: 'omit', ...options, signal: controller.signal, headers: { ...(options.body ? { "content-type": "application/json", "x-raizes-request": "1" } : {}), ...options.headers } });
+    if (!(response.headers.get("content-type") || "").includes("application/json")) throw new Error("A vitrine compartilhada está disponível no novo endereço público.");
     const body = await response.json();
     if (!response.ok) throw Object.assign(new Error(body.error || "Não foi possível completar a solicitação."), { errors: body.errors, status: response.status });
     return body;
@@ -19,14 +31,14 @@ export async function loadAccount() {
   account.loading = true; account.error = "";
   try {
     const session = await request("session");
-    Object.assign(account, session);
-    if (session.shared) {
-      account.businesses = (await request("businesses")).businesses;
-      if (session.user) {
-        const own = (await request("my-businesses")).businesses;
-        const combined = new Map(account.businesses.map(b => [b.id, b]));
-        own.forEach(b => combined.set(b.id, b));
-        account.businesses = [...combined.values()];
+    account.shared = session.shared === true;
+    account.businesses = account.shared ? (await request('businesses')).businesses : getCreatedBusinesses();
+    if (account.shared) {
+      const known = new Set(account.businesses.map(b => b.id));
+      const missing = ownedBusinessIds().filter(id => /^[a-f0-9-]{36}$/i.test(id) && !known.has(id));
+      for (let start = 0; start < missing.length; start += 40) {
+        const extra = await request(`businesses?ids=${missing.slice(start, start + 40).join(',')}`);
+        account.businesses.push(...extra.businesses);
       }
     }
   } catch (error) { account.error = error.message; }
@@ -35,45 +47,16 @@ export async function loadAccount() {
 }
 
 export async function publishBusiness(business, images) {
-  const result = await request("businesses", { method: "POST", body: JSON.stringify({ business, images }) });
+  let result;
+  if (account.shared) result = await request('businesses', { method:'POST', body:JSON.stringify({business, images}) });
+  else {
+    if (account.error && location.hostname.endsWith('.pages.dev')) throw new Error('A publicação compartilhada está indisponível. Tente novamente em instantes.');
+    result = saveBusiness(business, images);
+    if (!result.ok) throw Object.assign(new Error(result.errors.form || 'Revise os campos indicados.'), { errors:result.errors });
+  }
+  result.business.localTrackingFailed = !rememberBusiness(result.business.id);
   account.businesses.unshift(result.business);
   return result.business;
 }
 
-export async function signOut() {
-  await request("auth/logout", { method: "POST", body: "{}" });
-  account.user = null;
-  globalThis.google?.accounts?.id?.disableAutoSelect();
-}
 
-let googleScript;
-function loadGoogle() {
-  if (globalThis.google?.accounts?.id) return Promise.resolve();
-  if (!googleScript) googleScript = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client?hl=pt-BR";
-    script.async = true;
-    const timer = setTimeout(() => { script.remove(); googleScript = null; reject(new Error("O serviço do Google demorou a responder. Tente novamente.")); }, 12000);
-    script.onload = () => { clearTimeout(timer); resolve(); };
-    script.onerror = () => { clearTimeout(timer); script.remove(); googleScript = null; reject(new Error("Não foi possível abrir o login do Google. Confira sua conexão.")); };
-    document.head.append(script);
-  });
-  return googleScript;
-}
-
-export async function setupGoogleLogin(element, onSuccess, onError) {
-  if (!account.authReady || !element) return;
-  try {
-    const [challenge] = await Promise.all([request("auth/challenge"), loadGoogle()]);
-    if (!element.isConnected) return;
-    globalThis.google.accounts.id.initialize({ client_id: account.clientId, nonce: challenge.nonce, auto_select: false, cancel_on_tap_outside: true, callback: async ({ credential }) => {
-      try {
-        const result = await request("auth/google", { method: "POST", body: JSON.stringify({ credential }) });
-        account.user = result.user;
-        await onSuccess(result.user);
-      } catch (error) { onError(error.message); }
-    } });
-    element.replaceChildren();
-    globalThis.google.accounts.id.renderButton(element, { theme: "outline", size: "large", text: "continue_with", shape: "pill", locale: "pt-BR", width: Math.min(320, element.clientWidth || 280) });
-  } catch (error) { onError(error.message); }
-}
