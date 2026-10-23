@@ -1,4 +1,4 @@
-import { getCreatedBusinesses, saveBusiness } from './catalog.js?v=20261023-3';
+import { getCreatedBusinesses, saveBusiness } from './catalog.js?v=20261023-4';
 export const account = { loading: true, shared: false, businesses: [], error: '' };
 const OWNED_KEY = 'raizes:published-ids:v1';
 export function ownedBusinessIds(storage) {

@@ -2,9 +2,9 @@ import {
   CATEGORIES, UNITS, DEMO_BUSINESSES, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
   filterBusinesses, validateBusiness, groupBusinessesByResponsible
-} from "./catalog.js?v=20261023-3";
-import { account, loadAccount, publishBusiness, ownedBusinessIds } from "./api.js?v=20261023-3";
-import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261023-3";
+} from "./catalog.js?v=20261023-4";
+import { account, loadAccount, publishBusiness, ownedBusinessIds } from "./api.js?v=20261023-4";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261023-4";
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -378,9 +378,9 @@ function updatePreview() {
     id: "preview", name: values.name?.trim() || "Sua marca aparece aqui", category: values.category || "Categoria",
     description: values.description?.trim() || "Conte sobre seu negócio para visualizar uma descrição.",
     shortDescription: values.description?.trim() || "Conte sobre seu negócio para visualizar uma descrição.",
-    unit: values.unit?.trim() || "Sua unidade ETEC", images: formImages, products: values.products
+    unit: values.unit?.trim() || "Sua unidade ETEC", student: values.student?.trim() || "Nome do responsável", images: formImages, products: values.products
   };
-  document.querySelector("#form-preview").innerHTML = `<div class="preview-card">${imageMarkup(example)}<div><span class="category-label">${escapeHTML(example.category)}</span><h3>${escapeHTML(example.name)}</h3><p>${escapeHTML(example.shortDescription)}</p><p class="business-price">${minimumPrice(example)}</p><small>${icon("pin", 15)} ${escapeHTML(example.unit)}</small></div></div>`;
+  document.querySelector("#form-preview").innerHTML = `<div class="preview-card">${imageMarkup(example)}<div><span class="category-label">${escapeHTML(example.category)}</span><h3>${escapeHTML(example.name)}</h3><p>${escapeHTML(example.shortDescription)}</p><p class="card-author">${icon("user", 16)} Por ${escapeHTML(example.student)}</p><p class="business-price">${minimumPrice(example)}</p><small>${icon("pin", 15)} ${escapeHTML(example.unit)}</small></div></div>`;
   document.querySelector("#uploaded-images").innerHTML = formImages.map((source, index) => `<div class="uploaded-thumb"><img src="${escapeHTML(source)}" alt="Foto selecionada ${index + 1}" width="80" height="80"><button type="button" data-remove-image="${index}" aria-label="Remover foto ${index + 1}">${icon("close", 15)}</button></div>`).join("");
 }
 
