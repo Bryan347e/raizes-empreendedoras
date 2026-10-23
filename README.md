@@ -2,6 +2,8 @@
 
 Revista digital e vitrine de negócios estudantis das ETECs. HTML, CSS e JavaScript, com backend Cloudflare Pages e banco D1 para contas Google e anúncios compartilhados.
 
+Produção: https://raizes-empreendedoras.pages.dev/ — use este endereço para contas e anúncios compartilhados. O cliente Google está configurado para essa origem e o aplicativo está em produção para público externo. O banco D1 está vinculado como `DB`, e o Client ID público está na variável `GOOGLE_CLIENT_ID` da hospedagem. Não é necessário Client Secret. O projeto Google foi criado pelo Firebase no plano gratuito, sem Analytics e sem ativar cobrança.
+
 ## Conta Google e publicação no Cloudflare
 
 1. Instale dependências com `pnpm install --frozen-lockfile` e execute `node scripts/build-cloudflare.mjs`.
@@ -68,3 +70,4 @@ node --check src/app.js
 Os testes de backend usam SQLite em memória como adaptador D1 e JWTs assinados com chaves exclusivas do teste. Verificam assinatura inválida, audiência, nonce/repetição, e-mail confirmado, sessão expirada, CSRF, validação de publicação, identidade do proprietário, fotos e privacidade do e-mail. Não substituem o teste de login real nem a configuração de produção.
 
 As fotos dos exemplos foram geradas para esta demonstração. A pequena marca do cabeçalho usa um recorte visual da imagem de referência fornecida; o arquivo original do logotipo é recomendado para obter a reprodução final em alta qualidade.
+
