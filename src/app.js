@@ -507,7 +507,11 @@ function setupPreferences() {
   form.addEventListener("submit", event => {
     event.preventDefault();
     const result = savePreferences(preferenceValues(form));
-    if (!result.ok) { document.querySelector("#preferences-error").textContent = Object.values(result.errors).join(" "); return; }
+    if (!result.ok) {
+      const error = document.querySelector("#preferences-error"); error.textContent = Object.values(result.errors).join(" "); error.tabIndex = -1; error.focus();
+      if (result.errors.budget) ["#preference-min", "#preference-max"].forEach(selector => { const field = form.querySelector(selector); field.setAttribute("aria-invalid", "true"); field.setAttribute("aria-describedby", "preferences-error"); });
+      return;
+    }
     preferences = result.preferences; preferenceDraft = { ...preferences, categories: [...preferences.categories] };
     render({ scrollTop: false });
     showToast("Preferências salvas. Suas sugestões foram atualizadas.");
