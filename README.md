@@ -15,10 +15,10 @@ Para abrir a demonstração no computador, execute `iniciar-site.cmd` ou `node s
 - Não há conta Google, senha, sessão de usuário ou e-mail de login.
 - Cada loja possui responsável obrigatório, unidade ETEC e contato profissional escolhido por quem publica.
 - O nome do responsável aparece no cartão e nos detalhes. A busca também encontra responsáveis.
-- **Meus anúncios** usa apenas IDs guardados neste navegador e agrupa as lojas pelo nome e unidade informados. Outros navegadores não recebem essa lista automaticamente; apagar o armazenamento local remove a lembrança, sem excluir o anúncio público.
+- **Meus anúncios** usa IDs e chaves de exclusão individuais guardados neste navegador e agrupa as lojas pelo nome e unidade informados. Outros navegadores não recebem essa lista automaticamente; apagar o armazenamento local remove a lembrança, sem excluir o anúncio público.
 - Essa organização não autentica pessoas. Homônimos na mesma unidade podem aparecer no mesmo grupo visual quando publicados no mesmo navegador. Cada anúncio continua sendo um registro separado.
 - A API oferece criação e leitura pública, sem edição ou exclusão de lojas de outras pessoas. Campos de propriedade/identidade enviados por clientes são ignorados. Não são criadas contas ou sessões no banco.
-- Há validação de campos, preços, até 12 produtos, até três fotos e limite de 30 publicações diárias por acesso de rede. O limite usa hash diário do IP, sem armazenar o endereço original na tabela do projeto.
+- Há validação de campos, preços, até 12 produtos, até três fotos da marca e três fotos por produto, e limite de 30 publicações diárias por acesso de rede. O limite usa hash diário do IP, sem armazenar o endereço original na tabela do projeto.
 - Anúncios de versões anteriores permanecem disponíveis. As tabelas antigas foram mantidas para não apagar trabalho existente, mas o código Google e seus endpoints foram removidos.
 
 ## Descoberta
@@ -52,4 +52,10 @@ Testes cobrem publicação sem conta por responsáveis diferentes, ausência de 
 Os nomes e a seleção da ETEC não comprovam identidade ou vínculo estudantil. Publicação aberta exige acompanhamento do responsável pelo projeto; esta versão não inclui moderação automática ou recuperação de anúncios em outro aparelho. Não há delivery, pagamentos, carrinho ou chat.
 
 As fotos dos exemplos foram geradas para a demonstração. A marca do cabeçalho usa um recorte da referência; recomenda-se o logotipo original separado para reprodução final.
+
+## Fotos de produtos e exclusão
+
+Cada produto tem até três fotos independentes das três fotos da marca. A primeira foto da marca é a capa; os detalhes mostram o catálogo de produtos com fotos e preços. As imagens são reduzidas antes do envio.
+
+Cada anúncio novo recebe uma chave aleatória de 256 bits no navegador. O servidor guarda somente o hash SHA-256, separado do conteúdo público. DELETE exige essa chave e confirmação na interface; não há exclusão por nome, ID público ou seleção de responsável. Os anúncios antigos sem chave permanecem visíveis e não recebem permissão de exclusão retroativa. Anúncios locais podem ser removidos no navegador que os armazena.
 

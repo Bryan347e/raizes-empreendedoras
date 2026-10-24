@@ -1,4 +1,4 @@
-import { CATEGORIES, normalizeText } from "./catalog.js?v=20261023-4";
+import { CATEGORIES, normalizeText } from "./catalog.js?v=20261024-1";
 
 export const PREFERENCES_KEY = "raizes:preferences:v1";
 export const DEFAULT_PREFERENCES = { city: "São Paulo", neighborhood: "", categories: [], tastes: "", minPrice: "", maxPrice: "", location: null };
@@ -57,7 +57,7 @@ export function distanceKm(from, to) {
 }
 
 export function productsOf(business) {
-  if (Array.isArray(business.products)) return business.products.filter(p => p && typeof p.name === "string").map(p => ({ name: p.name, price: typeof p.price === "number" && Number.isFinite(p.price) && p.price >= 0 ? p.price : null }));
+  if (Array.isArray(business.products)) return business.products.filter(p => p && typeof p.name === "string").map(p => ({ name: p.name, price: typeof p.price === "number" && Number.isFinite(p.price) && p.price >= 0 ? p.price : null, images: Array.isArray(p.images) ? p.images.slice(0, 3) : [] }));
   return (business.offerings || []).map(name => ({ name, price: null }));
 }
 

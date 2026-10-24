@@ -58,11 +58,48 @@ test('publicação valida campos, preço, imagens, origem e tamanho do corpo',as
   assert.equal((await call('businesses','POST',{business:{...business,products:[{name:'Brownie',price:-2}]}})).status,400);
   assert.equal((await call('businesses','POST',{business:{...business,student:''}})).status,400);
   assert.equal((await call('businesses','POST',{business,images:['data:image/png;base64,YmFk']})).status,400);
-  assert.equal((await call('businesses','POST',{business,padding:'x'.repeat(1600001)})).status,413);
+  assert.equal((await call('businesses','POST',{business,padding:'x'.repeat(20000001)})).status,413);
   const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
   const item=(await (await call('businesses','POST',{business,images:[png]})).json()).business;
   const image=await call(item.images[0].slice(4));
   assert.equal(image.status,200); assert.equal(image.headers.get('content-type'),'image/png');
+});
+
+test('cada produto mantém até três fotos independentes da marca, inclusive após reler o anúncio', async()=>{
+  const {call}=setup();
+  const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
+  const products=Array.from({length:12},(_,i)=>({name:`Bolo ${i+1}`,price:10+i,images:[png,png,png]}));
+  assert.equal((await call('businesses','POST',{business:{...business,products:[{...products[0],images:[png,png,png,png]}]}})).status,400);
+  assert.equal((await call('businesses','POST',{business:{...business,products:[{...products[0],images:['data:image/png;base64,YmFk']}]}})).status,400);
+  const response=await call('businesses','POST',{business:{...business,products},images:[png,png,png]});
+  assert.equal(response.status,201);
+  const saved=(await response.json()).business;
+  const read=(await (await call(`businesses?ids=${saved.id}`)).json()).businesses[0];
+  assert.equal(read.images.length,3); assert.equal(read.products.length,12);
+  assert.deepEqual(read.products.map(p=>p.price),products.map(p=>p.price));
+  assert.ok(read.products.every(p=>p.images.length===3));
+  const all=[...read.images,...read.products.flatMap(p=>p.images)];
+  assert.equal(new Set(all).size,39);
+  for (const path of all) assert.equal((await call(path.slice(4))).status,200);
+});
+
+test('somente a chave de um anúncio permite excluí-lo, removendo produtos e fotos sem atingir outras lojas', async()=>{
+  const {env,call}=setup();
+  const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
+  const token='a'.repeat(64), otherToken='b'.repeat(64);
+  const saved=(await (await call('businesses','POST',{business:{...business,products:[{name:'Chocolate',price:20,images:[png]}]},images:[png],managementToken:token})).json()).business;
+  const other=(await (await call('businesses','POST',{business,managementToken:otherToken})).json()).business;
+  assert.equal((await call(`businesses/${saved.id}`,'DELETE')).status,403);
+  assert.equal((await call(`businesses/${saved.id}`,'DELETE',undefined,{'x-raizes-management':otherToken})).status,403);
+  assert.equal((await call(`businesses/${saved.id}`,'DELETE',undefined,{'x-raizes-management':token,origin:'https://evil.invalid'})).status,403);
+  const publicList=JSON.stringify(await (await call('businesses')).json());
+  assert.ok(!publicList.includes(token)); assert.ok(!publicList.includes('token_hash'));
+  assert.notEqual(env.DB.db.prepare('SELECT token_hash FROM business_management WHERE business_id=?').get(saved.id).token_hash,token);
+  assert.equal((await call(`businesses/${saved.id}`,'DELETE',undefined,{'x-raizes-management':token})).status,200);
+  assert.deepEqual((await (await call('businesses')).json()).businesses.map(b=>b.id),[other.id]);
+  for(const image of [...saved.images,...saved.products.flatMap(p=>p.images)]) assert.equal((await call(image.slice(4))).status,404);
+  assert.equal(env.DB.db.prepare('SELECT COUNT(*) n FROM product_images').get().n,0);
+  assert.equal((await call(`businesses/${other.id}`,'DELETE',undefined,{'x-raizes-management':token})).status,403);
 });
 
 test('limite diário usa hash e impede mais de 30 publicações por acesso',async()=>{

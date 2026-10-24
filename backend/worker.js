@@ -2,7 +2,7 @@ import { validateBusiness } from "../src/catalog.js";
 import { approximateLocation, validLocation } from "../src/discovery.js";
 import { SCHEMA } from "./schema.js";
 
-const MAX_BODY = 1600000;
+const MAX_BODY = 20000000; // Up to 3 business photos + 3 per product (12 products).
 const encoder = new TextEncoder();
 const hex = bytes => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, "0")).join("");
 const hash = async value => hex(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
@@ -59,7 +59,16 @@ export function createWorker({ clock = () => Date.now() } = {}) {
       const result = await db.prepare(`SELECT id, business_id, position FROM public_business_images WHERE business_id IN (${chunk.map(() => "?").join(",")}) UNION ALL SELECT id, business_id, position FROM business_images WHERE business_id IN (${chunk.map(() => "?").join(",")}) ORDER BY position`).bind(...chunk, ...chunk).all();
       images.push(...result.results);
     }
-    return rows.map(row => ({ ...JSON.parse(row.data), images: images.filter(image => image.business_id === row.id).map(image => `api/imagens/${image.id}`), shared: true }));
+    const productImages = [];
+    for (let start = 0; start < ids.length; start += 40) {
+      const chunk = ids.slice(start, start + 40);
+      const result = await db.prepare(`SELECT id, business_id, product_index, position FROM product_images WHERE business_id IN (${chunk.map(() => '?').join(',')}) ORDER BY product_index, position`).bind(...chunk).all();
+      productImages.push(...result.results);
+    }
+    return rows.map(row => {
+      const business = JSON.parse(row.data);
+      return { ...business, images: images.filter(image => image.business_id === row.id).map(image => `api/imagens/${image.id}`), products: business.products?.map((p, index) => ({ ...p, images: productImages.filter(image => image.business_id === row.id && image.product_index === index).map(image => `api/imagens/${image.id}`) })), shared: true };
+    });
   }
 
   return {
@@ -67,13 +76,28 @@ export function createWorker({ clock = () => Date.now() } = {}) {
       const url = new URL(request.url), route = url.pathname;
       if (!route.startsWith("/api/")) return env.ASSETS.fetch(request);
       try {
-        if (!["GET", "POST"].includes(request.method)) return json({ error: "Método não permitido." }, 405);
+        const deletion = /^\/api\/businesses\/([a-f0-9-]{36})$/.exec(route);
+        if (!["GET", "POST"].includes(request.method) && !(deletion && request.method === 'DELETE')) return json({ error: "Método não permitido." }, 405);
         if (request.method !== "GET" && (request.headers.get("origin") !== url.origin || request.headers.get("x-raizes-request") !== "1")) return json({ error: "A solicitação deve partir do próprio site." }, 403);
         if (route === "/api/session" && !env.DB) return json({ shared: false });
         if (!env.DB) return json({ error: "O armazenamento compartilhado ainda está em configuração.", code: "NOT_CONFIGURED" }, 503);
         await ensureDatabase(env.DB);
 
         if (route === "/api/session" && request.method === "GET") return json({ shared: true });
+        if (deletion && request.method === 'DELETE') {
+          const token = request.headers.get('x-raizes-management') || '';
+          if (!/^[a-f0-9]{64}$/.test(token)) return json({ error: 'A chave de exclusão não está disponível neste navegador.' }, 403);
+          const tokenHash = await hash(token);
+          const permitted = await env.DB.prepare('SELECT business_id FROM business_management WHERE business_id = ? AND token_hash = ?').bind(deletion[1], tokenHash).first();
+          if (!permitted) return json({ error: 'Este navegador não tem a chave para excluir este anúncio.' }, 403);
+          await env.DB.batch([
+            env.DB.prepare('DELETE FROM product_images WHERE business_id = ?').bind(deletion[1]),
+            env.DB.prepare('DELETE FROM public_business_images WHERE business_id = ?').bind(deletion[1]),
+            env.DB.prepare('DELETE FROM business_management WHERE business_id = ? AND token_hash = ?').bind(deletion[1], tokenHash),
+            env.DB.prepare('DELETE FROM public_businesses WHERE id = ?').bind(deletion[1])
+          ]);
+          return json({ deleted: true });
+        }
         if (route === "/api/businesses" && request.method === "GET") {
           let result;
           if (url.searchParams.has('ids')) {
@@ -94,6 +118,9 @@ export function createWorker({ clock = () => Date.now() } = {}) {
           if (values.location !== null && values.location !== undefined && !validLocation(values.location)) errors.location = "A localização é inválida. Informe novamente a região de atendimento.";
           const images = validateImages(body.images || []);
           if (!images) errors.images = "Use até 3 fotos JPG, PNG ou WebP menores que 375 KB cada.";
+          const productImages = Array.isArray(values.products) ? values.products.map(p => validateImages(p?.images ?? [])) : [];
+          if (productImages.some(images => !images)) errors.products = 'Cada produto pode ter até 3 fotos JPG, PNG ou WebP menores que 375 KB cada.';
+          if (body.managementToken !== undefined && !/^[a-f0-9]{64}$/.test(body.managementToken)) errors.form = 'A chave de exclusão é inválida. Atualize a página e tente novamente.';
           if (Object.keys(errors).length) return json({ error: "Revise os campos indicados.", errors }, 400);
           // Public create-only submission: a declared name grants no identity or permissions.
           // A daily network hash limits abuse; no account, login email or session is created.
@@ -106,16 +133,22 @@ export function createWorker({ clock = () => Date.now() } = {}) {
           const id = crypto.randomUUID();
           const business = { id, name: values.name.trim(), category: values.category, description: values.description.trim(), shortDescription: values.description.trim().slice(0, 110), student: values.student.trim(), unit: values.unit, contact: values.contact.trim(), city: values.city.trim(), neighborhood: values.neighborhood.trim(), tags: String(values.tags || "").trim(), location: approximateLocation(values.location), products: values.products.map(p => ({ name: p.name.trim(), price: p.price })), offerings: values.products.map(p => p.name.trim()), demo: false, shared: true, featured: false, createdAt: new Date(clock()).toISOString() };
           const statements = [env.DB.prepare("INSERT INTO public_businesses (id, data, created_at) VALUES (?, ?, ?)").bind(id, JSON.stringify(business), now())];
+          if (body.managementToken) statements.push(env.DB.prepare('INSERT INTO business_management (business_id, token_hash) VALUES (?, ?)').bind(id, await hash(body.managementToken)));
           const imageIds = images.map(() => crypto.randomUUID());
           images.forEach((image, i) => statements.push(env.DB.prepare("INSERT INTO public_business_images (id, business_id, position, mime, data) VALUES (?, ?, ?, ?, ?)").bind(imageIds[i], id, i, image.mime, image.data)));
+          const productImageIds = productImages.map((photos, productIndex) => photos.map((image, position) => {
+            const imageId = crypto.randomUUID();
+            statements.push(env.DB.prepare('INSERT INTO product_images (id, business_id, product_index, position, mime, data) VALUES (?, ?, ?, ?, ?, ?)').bind(imageId, id, productIndex, position, image.mime, image.data));
+            return `api/imagens/${imageId}`;
+          }));
           statements.push(env.DB.prepare("DELETE FROM publication_limits WHERE expires_at < ?").bind(now()));
           await env.DB.batch(statements);
-          return json({ business: { ...business, images: imageIds.map(image => `api/imagens/${image}`) } }, 201);
+          return json({ business: { ...business, images: imageIds.map(image => `api/imagens/${image}`), products: business.products.map((product, index) => ({ ...product, images: productImageIds[index] })) } }, 201);
         }
 
         const imageMatch = /^\/api\/imagens\/([a-f0-9-]{36})$/.exec(route);
         if (imageMatch && request.method === "GET") {
-          const image = await env.DB.prepare("SELECT mime, data FROM public_business_images WHERE id = ? UNION ALL SELECT mime, data FROM business_images WHERE id = ? LIMIT 1").bind(imageMatch[1], imageMatch[1]).first();
+          const image = await env.DB.prepare("SELECT mime, data FROM public_business_images WHERE id = ? UNION ALL SELECT mime, data FROM business_images WHERE id = ? UNION ALL SELECT mime, data FROM product_images WHERE id = ? LIMIT 1").bind(imageMatch[1], imageMatch[1], imageMatch[1]).first();
           if (!image) return json({ error: "Imagem não encontrada." }, 404);
           return new Response(Uint8Array.from(atob(image.data), char => char.charCodeAt(0)), { headers: { "content-type": image.mime, "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
         }

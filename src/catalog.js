@@ -286,3 +286,10 @@ export function saveBusiness(values, images = [], storage = browserStorage()) {
   }
 }
 
+export function removeLocalBusiness(id, storage = browserStorage()) {
+  const businesses = getCreatedBusinesses(storage);
+  if (!businesses.some(b => b.id === id)) throw new Error('Anúncio local não encontrado.');
+  try { storage.setItem(BUSINESS_KEY, JSON.stringify(businesses.filter(b => b.id !== id))); }
+  catch { throw new Error('Não foi possível excluir neste navegador. Tente novamente.'); }
+}
+

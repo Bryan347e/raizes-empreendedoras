@@ -2,9 +2,9 @@ import {
   CATEGORIES, UNITS, DEMO_BUSINESSES, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
   filterBusinesses, validateBusiness, groupBusinessesByResponsible
-} from "./catalog.js?v=20261023-4";
-import { account, loadAccount, publishBusiness, ownedBusinessIds } from "./api.js?v=20261023-4";
-import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261023-4";
+} from "./catalog.js?v=20261024-1";
+import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness } from "./api.js?v=20261024-1";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261024-1";
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -17,6 +17,8 @@ try { preferences = getPreferences(); } catch { preferences = { ...DEFAULT_PREFE
 let preferenceDraft = { ...preferences, categories: [...preferences.categories] };
 let businessLocation = null;
 let productRowId = 0;
+let productPhotos = new Map();
+let pendingUploads = 0;
 
 function allBusinesses() {
   const byId = new Map(getAllBusinesses().map(b => [b.id, b]));
@@ -272,7 +274,48 @@ function renderFavorites() {
 function renderProfile() {
   const remembered = new Set([...ownedBusinessIds(), ...getCreatedBusinesses().map(b => b.id)]);
   const groups = groupBusinessesByResponsible(allBusinesses().filter(b => remembered.has(b.id)));
-  return `<section class="page-heading page-width"><p class="section-intro">Seu espaço</p><h1>Meus anúncios</h1><p>As lojas que este navegador lembra, separadas pelo responsável informado.</p></section><section class="page-width listing-section"><div class="service-notice"><strong>Sem conta e sem login.</strong><p>Esta lista fica apenas neste navegador. Em outro aparelho ela pode estar vazia. Se outras pessoas publicarem neste mesmo navegador, os anúncios serão organizados pelos nomes e unidades informados. Os nomes não comprovam identidade nem vínculo com a ETEC.</p><a class="button button-dark" href="#/divulgar">Divulgar minha marca</a></div>${groups.length ? groups.map(group => `<section class="responsible-group"><div class="section-heading"><div><p class="section-intro">Responsável informado</p><h2>${escapeHTML(group.student)} <span class="count-badge">${group.businesses.length}</span></h2><p>${escapeHTML(group.unit)}</p></div></div><div class="business-grid">${group.businesses.map(businessCard).join("")}</div></section>`).join("") : '<div class="empty-state"><h2>Você ainda não publicou neste navegador</h2><p>Informe o responsável no cadastro da loja. Os anúncios públicos de outras pessoas ficam em Explorar.</p><a class="text-link" href="#/explorar">Explorar negócios</a></div>'}</section>`;
+  return `<section class="page-heading page-width"><p class="section-intro">Seu espaço</p><h1>Meus anúncios</h1><p>As lojas que este navegador lembra, separadas pelo responsável informado.</p></section><section class="page-width listing-section"><div class="service-notice"><strong>Sem conta e sem login.</strong><p>Esta lista fica apenas neste navegador. Em outro aparelho ela pode estar vazia. Se outras pessoas publicarem neste mesmo navegador, os anúncios serão organizados pelos nomes e unidades informados. Os nomes não comprovam identidade nem vínculo com a ETEC. Para excluir um anúncio novo, use este mesmo navegador e confirme em “Excluir anúncio”. Apagar os dados do navegador também apaga a chave de exclusão.</p><a class="button button-dark" href="#/divulgar">Divulgar minha marca</a></div>${groups.length ? groups.map(group => `<section class="responsible-group"><div class="section-heading"><div><p class="section-intro">Responsável informado</p><h2>${escapeHTML(group.student)} <span class="count-badge">${group.businesses.length}</span></h2><p>${escapeHTML(group.unit)}</p></div></div><div class="business-grid">${group.businesses.map(ownBusinessCard).join("")}</div></section>`).join("") : '<div class="empty-state"><h2>Você ainda não publicou neste navegador</h2><p>Informe o responsável no cadastro da loja. Os anúncios públicos de outras pessoas ficam em Explorar.</p><a class="text-link" href="#/explorar">Explorar negócios</a></div>'}</section>`;
+}
+
+function ownBusinessCard(business) {
+  return `<div class="owned-business">${businessCard(business)}${canDeleteBusiness(business) ? `<button type="button" class="delete-business-button" data-delete-business="${escapeHTML(business.id)}" aria-label="Excluir anúncio de ${escapeHTML(business.name)}">${icon('close', 18)} Excluir anúncio</button>` : '<p class="field-hint legacy-delete-note">Anúncio antigo: sem chave de exclusão neste navegador. A exclusão estará disponível nos novos anúncios publicados aqui.</p>'}</div>`;
+}
+
+function productCatalogMarkup(products, preview = false) {
+  const items = products.filter(p => p.name?.trim());
+  if (!items.length) return '';
+  const heading = preview ? 'h4' : 'h3';
+  return `<div class="store-products ${preview ? 'preview-products' : ''}">${items.map(product => {
+    const images = (product.images || []).filter(safeImageSrc).slice(0, 3);
+    return `<article class="store-product">${images.length ? `<div class="product-photos">${images.map((source, index) => `<span class="photo-frame"><img src="${escapeHTML(source)}" alt="${escapeHTML(product.name)}, foto ${index + 1}" width="480" height="360" loading="lazy" data-business-image><span class="photo-fallback">Imagem indisponível</span></span>`).join('')}</div>` : `<div class="product-no-photo">${icon('image', 24)}<span>Sem foto do produto</span></div>`}<div class="store-product-info"><${heading}>${escapeHTML(product.name)}</${heading}><strong>${money(product.price)}</strong></div></article>`;
+  }).join('')}</div>`;
+}
+
+function confirmDeleteBusiness(business, opener) {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'delete-dialog';
+  dialog.setAttribute('aria-labelledby', 'delete-title');
+  dialog.setAttribute('aria-describedby', 'delete-description');
+  dialog.innerHTML = `<h2 id="delete-title">Excluir este anúncio?</h2><p id="delete-description">O anúncio de <strong>${escapeHTML(business.name)}</strong>, seus produtos e suas fotos serão removidos da vitrine. Esta ação não pode ser desfeita.</p><p class="field-error" role="alert" data-delete-error></p><div class="delete-dialog-actions"><button type="button" class="button button-light" data-cancel-delete autofocus>Cancelar</button><button type="button" class="button button-danger" data-confirm-delete>Excluir definitivamente</button></div>`;
+  document.body.append(dialog);
+  dialog.addEventListener('close', () => { dialog.remove(); if (opener.isConnected) opener.focus(); });
+  dialog.querySelector('[data-cancel-delete]').addEventListener('click', () => dialog.close());
+  dialog.querySelector('[data-confirm-delete]').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true; button.textContent = 'Excluindo…';
+    dialog.querySelector('[data-cancel-delete]').disabled = true;
+    const blockEscape = event => event.preventDefault();
+    dialog.addEventListener('cancel', blockEscape);
+    try {
+      await deleteBusiness(business);
+      dialog.close(); render({ scrollTop:false, focusMain:true }); showToast('Anúncio excluído da vitrine.');
+    } catch (error) {
+      dialog.querySelector('[data-delete-error]').textContent = error.message;
+      button.disabled = false; button.textContent = 'Excluir definitivamente';
+      dialog.querySelector('[data-cancel-delete]').disabled = false;
+    } finally { dialog.removeEventListener('cancel', blockEscape); }
+  });
+  dialog.showModal();
 }
 
 function renderDetail(id, params) {
@@ -280,12 +323,12 @@ function renderDetail(id, params) {
   if (!business) return `<section class="page-width not-found"><div class="empty-state">${icon("search", 42)}<h1>Negócio não encontrado</h1><p>O endereço pode estar incorreto ou a marca pode ter sido removida deste navegador.</p><a class="button button-dark" href="#/explorar">Explorar negócios</a></div></section>`;
   const otherImages = business.images?.slice(1).filter(safeImageSrc) || [];
   return `<div class="page-width detail-page"><a href="#/explorar" class="back-link">${icon("back", 18)} Voltar para explorar</a>
-    ${params.get("criado") === "1" ? `<div class="success-banner" role="status">${icon("check", 22)}<span><strong>Marca salva com sucesso.</strong> ${business.shared ? "Ela já aparece na vitrine pública e pode ser encontrada pela busca." : "Ela foi salva apenas neste navegador, no modo demonstrativo."}${params.get("aviso") === "1" ? " O navegador não conseguiu lembrar este anúncio em Meus anúncios. Guarde o link para encontrá-lo novamente." : ""}</span></div>` : ""}
+    ${params.get("criado") === "1" ? `<div class="success-banner" role="status">${icon("check", 22)}<span><strong>Marca salva com sucesso.</strong> ${business.shared ? "Ela já aparece na vitrine pública e pode ser encontrada pela busca." : "Ela foi salva apenas neste navegador, no modo demonstrativo."}${params.get("aviso") === "1" ? " O navegador não conseguiu guardar a lista ou a chave de exclusão deste anúncio. Guarde o link para encontrá-lo novamente; a exclusão pode não estar disponível neste navegador." : ""}</span></div>` : ""}
     <h1 class="sr-only">${escapeHTML(business.name)}</h1>
     <div class="detail-grid"><div class="detail-main">
       <div class="detail-photo">${imageMarkup(business)}</div>
       ${otherImages.length ? `<div class="detail-gallery">${otherImages.map((source, index) => `<span class="photo-frame"><img src="${escapeHTML(source)}" alt="Outra imagem de ${escapeHTML(business.name)}, foto ${index + 2}" width="360" height="260" loading="lazy" data-business-image><span class="photo-fallback">Imagem indisponível</span></span>`).join("")}</div>` : ""}
-      <div class="detail-description"><h2>Sobre o negócio</h2><p>${escapeHTML(business.description)}</p><h2>Produtos e serviços</h2><ul class="offering-list">${productsOf(business).map(product => `<li>${icon("check", 16)}<span>${escapeHTML(product.name)}</span><strong>${money(product.price)}</strong></li>`).join("")}</ul><h2>Região de atendimento</h2><p>${escapeHTML([business.neighborhood, business.city].filter(Boolean).join(", ") || "Não informada")}${distanceMarkup(business)}</p><p class="field-hint">${business.demo ? "Os preços e a localização deste negócio são fictícios para demonstrar as recomendações." : "A localização, quando informada, representa uma região aproximada. A distância é em linha reta e não representa um trajeto."}</p></div>
+      <section class="store-catalog" aria-label="Produtos e serviços"><h2>Produtos e serviços</h2>${productCatalogMarkup(productsOf(business))}</section><div class="detail-description"><h2>Sobre o negócio</h2><p>${escapeHTML(business.description)}</p><h2>Região de atendimento</h2><p>${escapeHTML([business.neighborhood, business.city].filter(Boolean).join(", ") || "Não informada")}${distanceMarkup(business)}</p><p class="field-hint">${business.demo ? "Os preços e a localização deste negócio são fictícios para demonstrar as recomendações." : "A localização, quando informada, representa uma região aproximada. A distância é em linha reta e não representa um trajeto."}</p></div>
     </div><aside class="detail-sidebar"><div class="detail-heading"><span class="category-label">${escapeHTML(business.category)}</span>${favoriteButton(business)}<p class="detail-title">${escapeHTML(business.name)}</p><p>${escapeHTML(business.shortDescription || business.description)}</p></div><div class="detail-facts"><div>${icon("user", 20)}<span><small>Aluno responsável</small><strong>${escapeHTML(business.student)}</strong></span></div><div>${icon("pin", 20)}<span><small>Unidade ETEC</small><strong>${escapeHTML(business.unit)}</strong></span></div></div><div class="contact-box"><h2>Entre em contato</h2>${contactMarkup(business)}${business.demo ? '<small>Este é um exemplo demonstrativo. O contato não direciona a uma pessoa real.</small>' : '<small>Contato público informado pelo responsável pela marca.</small>'}</div><span class="detail-demo">${business.demo ? "Exemplo demonstrativo" : business.shared ? "Anúncio da comunidade" : "Cadastro antigo deste navegador"}</span></aside></div>
   </div>`;
 }
@@ -303,23 +346,23 @@ function renderPublish() {
         <div class="form-field full"><label for="business-description">Descrição do empreendimento <span aria-hidden="true">*</span></label><textarea id="business-description" name="description" rows="5" maxlength="600" required placeholder="Conte como seu negócio começou e o que torna sua marca especial."></textarea><p class="field-hint">Mínimo de 30 caracteres.</p><p id="error-description" class="field-error" data-error-for="description"></p></div>
         <fieldset class="form-field full product-editor"><legend>Produtos ou serviços e preços <span aria-hidden="true">*</span></legend><p class="field-hint">Informe o valor de cada item para que ele seja recomendado dentro do orçamento. Deixe o preço vazio quando for sob consulta.</p><div id="product-rows">${productRow()}</div><button type="button" class="clear-button" id="add-product">Adicionar produto ou serviço</button><p id="error-products" class="field-error" data-error-for="products"></p><p id="error-offerings" class="field-error" data-error-for="offerings"></p></fieldset>
         <div class="form-field"><label for="business-city">Cidade de atendimento <span aria-hidden="true">*</span></label><input id="business-city" name="city" maxlength="80" value="São Paulo" required><p id="error-city" class="field-error" data-error-for="city"></p></div><div class="form-field"><label for="business-neighborhood">Bairro de atendimento <span aria-hidden="true">*</span></label><input id="business-neighborhood" name="neighborhood" maxlength="80" required placeholder="Ex.: Santana"><p id="error-neighborhood" class="field-error" data-error-for="neighborhood"></p></div>
-        <div class="form-field full"><button type="button" class="location-button" data-geolocate="business">${icon("pin", 18)} Usar a região de atendimento atual</button><p id="business-location-state" class="field-hint" role="status">Opcional. A localização será publicada arredondada para uma região de cerca de 1 km, para ajudar na busca por proximidade. Se atende de casa, informe apenas cidade e bairro se preferir.</p><button type="button" class="clear-button" id="remove-business-location" hidden>Remover localização</button><p id="error-location" class="field-error" data-error-for="location"></p></div><div class="form-field full"><label for="business-tags">Estilo e características da marca</label><input id="business-tags" name="tags" maxlength="160" placeholder="Ex.: artesanal, chocolate, presentes"><p class="field-hint">Ajuda a combinar seu negócio com os gostos de quem visita.</p></div>
+        <div class="form-field full"><button type="button" class="location-button" data-geolocate="business">${icon("pin", 18)} Usar a região de atendimento atual</button><p id="business-location-state" class="field-hint" role="status">Opcional. A localização será publicada arredondada para uma região de cerca de 1 km, para ajudar na busca por proximidade. Se atende de casa, informe apenas cidade e bairro se preferir.</p><button type="button" class="clear-button" id="remove-business-location" hidden>Remover localização</button><p id="error-location" class="field-error" data-error-for="location"></p></div><div class="form-field full"><label for="business-tags">Estilo e características da marca</label><input id="business-tags" name="tags" maxlength="160" aria-describedby="business-tags-help" placeholder="Ex.: feito à mão, vegano, personalizado"><p id="business-tags-help" class="field-hint">Opcional. Escreva palavras que descrevem o que sua marca oferece e seus diferenciais, separadas por vírgulas. Exemplo para uma confeitaria: “bolos caseiros, chocolate, sem lactose, festas”. Para roupas: “moda vintage, sustentável, peças exclusivas”. Essas palavras ajudam o site a recomendar sua loja a quem procura esses estilos e interesses.</p></div>
         <div class="form-field full"><label for="business-student">Aluno responsável <span aria-hidden="true">*</span></label><input id="business-student" name="student" type="text" maxlength="90" autocomplete="name" required value="" placeholder="Seu nome"><p id="error-student" class="field-error" data-error-for="student"></p></div>
         <div class="form-field full"><label for="business-unit">Unidade ETEC <span aria-hidden="true">*</span></label><select id="business-unit" name="unit" required><option value="">Selecione sua unidade</option>${UNITS.map((unit) => `<option value="${escapeHTML(unit)}">${escapeHTML(unit)}</option>`).join("")}</select><p class="field-hint">Unidades da cidade de São Paulo. A seleção não verifica vínculo estudantil.</p><p id="error-unit" class="field-error" data-error-for="unit"></p></div>
         <div class="form-field full"><label for="business-contact">Contato <span aria-hidden="true">*</span></label><input id="business-contact" name="contact" type="text" maxlength="140" required placeholder="E-mail, perfil profissional ou outro contato"><p class="field-hint">Será exibido na página da marca. Confira antes de salvar.</p><p id="error-contact" class="field-error" data-error-for="contact"></p></div>
-        <div class="form-field full"><label for="business-images">Imagens do negócio</label><label class="upload-box" for="business-images">${icon("image", 28)}<strong>Adicione até 3 fotos</strong><span>JPG, PNG ou WebP. As imagens são reduzidas antes de salvar.</span><input id="business-images" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><p id="error-images" class="field-error" data-error-for="images"></p><div id="uploaded-images" class="uploaded-images"></div></div>
+        <div class="form-field full"><label for="business-images">Fotos da marca ou do negócio (até 3)</label><label class="upload-box" for="business-images">${icon("image", 28)}<strong>Adicione até 3 fotos</strong><span>Mostre seu logotipo, sua loja ou sua marca. A primeira foto será a capa. As fotos de cada produto são adicionadas no campo do próprio produto acima. JPG, PNG ou WebP, até 8 MB por arquivo.</span><input id="business-images" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><p id="error-images" class="field-error" data-error-for="images"></p><div id="uploaded-images" class="uploaded-images"></div></div>
       </div><div class="form-actions"><button type="submit" class="button button-dark">Publicar minha marca ${icon("arrow", 18)}</button><p>Nome, contato escolhido, produtos, preços, fotos e região de atendimento ficarão públicos. O nome do responsável é declarado por quem publica e não é verificado.</p></div>
     </form><aside class="preview-panel"><div class="preview-heading"><span>Pré-visualização</span><p>Veja como sua marca pode aparecer na vitrine.</p></div><div id="form-preview"></div><p class="preview-note">Confira os dados antes de publicar. Nome e unidade informados não comprovam identidade nem vínculo estudantil.</p></aside></section>`;
 }
 
 function productRow() {
   const id = ++productRowId;
-  return `<div class="product-row"><div><label for="product-name-${id}">Produto ou serviço</label><input id="product-name-${id}" name="productName" maxlength="100" required placeholder="Ex.: Brownie tradicional"></div><div><label for="product-price-${id}">Preço (R$)</label><input id="product-price-${id}" name="productPrice" inputmode="decimal" maxlength="12" placeholder="Sob consulta"></div><button type="button" class="remove-product" data-remove-product aria-label="Remover este produto">${icon("close", 18)}</button></div>`;
+  return `<div class="product-row" data-product-id="${id}"><div><label for="product-name-${id}">Produto ou serviço</label><input id="product-name-${id}" name="productName" maxlength="100" required placeholder="Ex.: Bolo de chocolate"></div><div><label for="product-price-${id}">Preço (R$)</label><input id="product-price-${id}" name="productPrice" inputmode="decimal" maxlength="12" placeholder="Sob consulta"></div><button type="button" class="remove-product" data-remove-product aria-label="Remover este produto">${icon("close", 18)}</button><div class="product-upload"><label for="product-images-${id}">Fotos deste produto (até 3)</label><input id="product-images-${id}" name="productImages" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="product-photo-hint-${id}"><p id="product-photo-hint-${id}" class="field-hint">Opcional. Escolha fotos apenas deste produto. Cada produto tem seu próprio limite de 3 fotos.</p><p class="field-error" role="status" data-photo-error></p><div class="uploaded-images" data-product-thumbs></div></div></div>`;
 }
 
 function publishValues(form) {
   const values = Object.fromEntries(new FormData(form).entries());
-  values.products = [...form.querySelectorAll(".product-row")].map(row => ({ name: row.querySelector('[name="productName"]').value.trim(), price: parsePrice(row.querySelector('[name="productPrice"]').value) }));
+  values.products = [...form.querySelectorAll(".product-row")].map(row => ({ name: row.querySelector('[name="productName"]').value.trim(), price: parsePrice(row.querySelector('[name="productPrice"]').value), images: [...(productPhotos.get(row.dataset.productId) || [])] }));
   values.offerings = values.products.map(p => p.name).join("\n");
   values.location = businessLocation;
   return values;
@@ -382,6 +425,11 @@ function updatePreview() {
   };
   document.querySelector("#form-preview").innerHTML = `<div class="preview-card">${imageMarkup(example)}<div><span class="category-label">${escapeHTML(example.category)}</span><h3>${escapeHTML(example.name)}</h3><p>${escapeHTML(example.shortDescription)}</p><p class="card-author">${icon("user", 16)} Por ${escapeHTML(example.student)}</p><p class="business-price">${minimumPrice(example)}</p><small>${icon("pin", 15)} ${escapeHTML(example.unit)}</small></div></div>`;
   document.querySelector("#uploaded-images").innerHTML = formImages.map((source, index) => `<div class="uploaded-thumb"><img src="${escapeHTML(source)}" alt="Foto selecionada ${index + 1}" width="80" height="80"><button type="button" data-remove-image="${index}" aria-label="Remover foto ${index + 1}">${icon("close", 15)}</button></div>`).join("");
+  document.querySelector('#form-preview').insertAdjacentHTML('beforeend', `<h3 class="preview-products-heading">Produtos e preços</h3>${productCatalogMarkup(values.products, true) || '<p class="field-hint">Adicione produtos para vê-los aqui com suas fotos e preços.</p>'}`);
+  form.querySelectorAll('.product-row').forEach(row => {
+    const name = row.querySelector('[name="productName"]').value.trim() || 'produto';
+    row.querySelector('[data-product-thumbs]').innerHTML = (productPhotos.get(row.dataset.productId) || []).map((source, index) => `<div class="uploaded-thumb"><img src="${escapeHTML(source)}" alt="${escapeHTML(name)}, foto selecionada ${index + 1}" width="80" height="80"><button type="button" data-remove-product-image="${index}" aria-label="Remover foto ${index + 1} de ${escapeHTML(name)}">${icon('close', 15)}</button></div>`).join('');
+  });
 }
 
 async function prepareImage(file) {
@@ -392,7 +440,7 @@ async function prepareImage(file) {
     const image = new Image();
     image.src = objectUrl;
     await image.decode();
-    const scale = Math.min(1, 1000 / Math.max(image.naturalWidth, image.naturalHeight));
+    const scale = Math.min(1, 900 / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -400,8 +448,9 @@ async function prepareImage(file) {
     context.fillStyle = "#faf6e9";
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const prepared = canvas.toDataURL("image/jpeg", 0.7);
-    if (prepared.length > 500000) throw new Error("Esta foto ainda ficou grande após a redução. Escolha uma imagem menor ou com menos detalhes.");
+    let prepared = canvas.toDataURL("image/jpeg", 0.68);
+    if (prepared.length > 200000) prepared = canvas.toDataURL('image/jpeg', 0.45);
+    if (prepared.length > 200000) throw new Error("Esta foto ainda ficou grande após a redução. Escolha uma imagem menor ou com menos detalhes.");
     return prepared;
   } finally { URL.revokeObjectURL(objectUrl); }
 }
@@ -425,6 +474,7 @@ function showFormErrors(errors) {
 function setupPublish() {
   if (!document.querySelector("#publish-form")) return;
   formImages = [];
+  productPhotos = new Map(); pendingUploads = 0;
   businessLocation = null;
   publishDirty = false;
   const form = document.querySelector("#publish-form");
@@ -441,7 +491,7 @@ function setupPublish() {
     }
   };
   form.addEventListener("input", handleEdit);
-  form.addEventListener("change", (event) => { if (event.target.name !== "images") handleEdit(event); });
+  form.addEventListener("change", (event) => { if (event.target.type !== "file") handleEdit(event); });
   document.querySelector("#add-product").addEventListener("click", () => {
     if (form.querySelectorAll(".product-row").length >= 12) { showToast("Você pode informar até 12 produtos ou serviços."); return; }
     document.querySelector("#product-rows").insertAdjacentHTML("beforeend", productRow());
@@ -452,29 +502,50 @@ function setupPublish() {
     if (!button) return;
     if (form.querySelectorAll(".product-row").length === 1) { showToast("Informe ao menos um produto ou serviço."); return; }
     const row = button.closest(".product-row"), next = row.previousElementSibling || row.nextElementSibling;
+    productPhotos.delete(row.dataset.productId);
     row.remove(); next.querySelector("input").focus(); publishDirty = true; updatePreview();
   });
   form.querySelector("#uploaded-images").addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-image]");
     if (!button) return;
     formImages.splice(Number(button.dataset.removeImage), 1);
+    form.querySelector('[data-error-for="images"]').textContent = '';
     publishDirty = true;
     updatePreview();
   });
-  form.querySelector("#business-images").addEventListener("change", async (event) => {
-    const error = form.querySelector('[data-error-for="images"]');
+  form.addEventListener("click", event => {
+    const remove = event.target.closest('[data-remove-product-image]');
+    if (!remove) return;
+    const row = remove.closest('.product-row');
+    productPhotos.get(row.dataset.productId)?.splice(Number(remove.dataset.removeProductImage), 1);
+    row.querySelector('[data-photo-error]').textContent = '';
+    publishDirty = true; updatePreview();
+    row.querySelector('[name="productImages"]').focus();
+  });
+  form.addEventListener("change", async (event) => {
+    const input = event.target;
+    if (input.type !== 'file') return;
+    const row = input.closest('.product-row');
+    const photos = row ? (productPhotos.get(row.dataset.productId) || []) : formImages;
+    if (row) productPhotos.set(row.dataset.productId, photos);
+    const error = row ? row.querySelector('[data-photo-error]') : form.querySelector('[data-error-for="images"]');
     error.textContent = "";
-    const selected = [...event.target.files];
-    if (selected.length + formImages.length > 3) { error.textContent = "Você pode adicionar até 3 imagens."; event.target.value = ""; return; }
+    const selected = [...input.files];
+    if (selected.length + photos.length > 3) { error.textContent = row ? 'Cada produto pode ter até 3 fotos. Remova uma antes de adicionar outra.' : 'O negócio pode ter até 3 fotos. Remova uma antes de adicionar outra.'; input.value = ""; return; }
+    if (!selected.length) return;
+    pendingUploads++; input.disabled = true; publishDirty = true;
+    const submit = form.querySelector('[type="submit"]'); submit.disabled = true;
+    error.textContent = 'Preparando fotos…';
     try {
-      for (const file of selected) formImages.push(await prepareImage(file));
-      if (selected.length) publishDirty = true;
-      updatePreview();
+      const prepared = [];
+      for (const file of selected) prepared.push(await prepareImage(file));
+      if (input.isConnected) { photos.push(...prepared); error.textContent = ''; updatePreview(); }
     } catch (failure) { error.textContent = failure.message || "Não foi possível ler esta imagem."; }
-    event.target.value = "";
+    finally { pendingUploads--; input.value = ''; input.disabled = false; submit.disabled = pendingUploads > 0; }
   });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (pendingUploads) { showToast('Aguarde o preparo das fotos antes de publicar.'); return; }
     const values = publishValues(form);
     const errors = validateBusiness(values);
     if (Object.keys(errors).length) { showFormErrors(errors); return; }
@@ -545,7 +616,7 @@ function requestLocation(kind, button) {
 }
 
 function renderPrivacy() {
-  return `<section class="page-heading page-width"><p class="section-intro">Transparência</p><h1>Privacidade e uso dos dados</h1></section><article class="page-width privacy-copy"><h2>Publicação sem conta</h2><p>Não é necessário fazer login ou criar conta. O site não recebe e-mail de acesso, senha ou dados de uma conta Google. O nome do responsável é informado no cadastro de cada loja e não representa identidade verificada.</p><h2>O que fica público</h2><p>Nome do responsável, unidade ETEC, contato escolhido, fotos, descrições, produtos, preços, cidade e bairro ficam disponíveis aos visitantes. O contato pode ser um perfil profissional; não é obrigatório informar e-mail pessoal. Não publique endereço residencial completo. A localização opcional do negócio é arredondada para uma região de cerca de 1 km.</p><h2>Meus anúncios</h2><p>O navegador guarda apenas os identificadores dos anúncios que publicou para organizar esta lista por responsável. A lista não é uma conta, não concede acesso privado e não é recuperada automaticamente em outro aparelho. Apagar os dados do navegador remove essa lembrança, mas não remove o anúncio público. A versão atual não permite editar ou excluir anúncios de outras pessoas.</p><h2>Local e preferências</h2><p>Sua localização só é acessada após clique e permissão. Ela é arredondada e fica neste navegador com gostos, categorias, orçamento e favoritos; não é enviada ao banco do projeto. Você pode removê-la em Local e preferências. Distâncias são aproximações em linha reta.</p><h2>Hospedagem e limites</h2><p>A hospedagem e o banco público usam o plano gratuito do Cloudflare. Para reduzir abuso, há um limite de 30 publicações diárias por acesso de rede. É usado um resumo criptográfico diário do endereço de rede, sem guardar o IP original no banco do projeto. A hospedagem pode processar dados técnicos da conexão conforme suas próprias políticas.</p><h2>Comunidade e exemplos</h2><p>A plataforma é destinada à comunidade ETEC. Nome e unidade declarados não verificam vínculo estudantil. Exemplos demonstrativos, preços e regiões são fictícios. Os únicos contatos exibidos nos anúncios são os que seus responsáveis informarem para suas lojas.</p><a class="button button-dark" href="#/preferencias">Gerenciar minhas preferências</a></article>`;
+  return `<section class="page-heading page-width"><p class="section-intro">Transparência</p><h1>Privacidade e uso dos dados</h1></section><article class="page-width privacy-copy"><h2>Publicação sem conta</h2><p>Não é necessário fazer login ou criar conta. O site não recebe e-mail de acesso, senha ou dados de uma conta Google. O nome do responsável é informado no cadastro de cada loja e não representa identidade verificada.</p><h2>O que fica público</h2><p>Nome do responsável, unidade ETEC, contato escolhido, fotos, descrições, produtos, preços, cidade e bairro ficam disponíveis aos visitantes. O contato pode ser um perfil profissional; não é obrigatório informar e-mail pessoal. Não publique endereço residencial completo. A localização opcional do negócio é arredondada para uma região de cerca de 1 km.</p><h2>Meus anúncios</h2><p>O navegador guarda os identificadores dos anúncios e uma chave de exclusão individual para cada anúncio novo. A lista não é uma conta nem é recuperada automaticamente em outro aparelho. Em Meus anúncios, você pode confirmar a exclusão dos anúncios cuja chave está neste navegador. A chave não aparece na vitrine pública. Apagar os dados do navegador remove a lista e as chaves, mas não remove os anúncios públicos. Anúncios antigos, criados sem chave, não podem ser excluídos por este recurso. Não é permitido editar ou excluir anúncios de outras pessoas.</p><h2>Local e preferências</h2><p>Sua localização só é acessada após clique e permissão. Ela é arredondada e fica neste navegador com gostos, categorias, orçamento e favoritos; não é enviada ao banco do projeto. Você pode removê-la em Local e preferências. Distâncias são aproximações em linha reta.</p><h2>Hospedagem e limites</h2><p>A hospedagem e o banco público usam o plano gratuito do Cloudflare. Para reduzir abuso, há um limite de 30 publicações diárias por acesso de rede. É usado um resumo criptográfico diário do endereço de rede, sem guardar o IP original no banco do projeto. A hospedagem pode processar dados técnicos da conexão conforme suas próprias políticas.</p><h2>Comunidade e exemplos</h2><p>A plataforma é destinada à comunidade ETEC. Nome e unidade declarados não verificam vínculo estudantil. Exemplos demonstrativos, preços e regiões são fictícios. Os únicos contatos exibidos nos anúncios são os que seus responsáveis informarem para suas lojas.</p><a class="button button-dark" href="#/preferencias">Gerenciar minhas preferências</a></article>`;
 }
 
 function render({ focusMain = false, scrollTop = true } = {}) {
@@ -582,6 +653,8 @@ function render({ focusMain = false, scrollTop = true } = {}) {
 }
 
 document.addEventListener("click", (event) => {
+  const deletion = event.target.closest("[data-delete-business]");
+  if (deletion) { const business = allBusinesses().find(b => b.id === deletion.dataset.deleteBusiness); if (business && canDeleteBusiness(business)) confirmDeleteBusiness(business, deletion); return; }
   const geolocate = event.target.closest("[data-geolocate]");
   if (geolocate) { requestLocation(geolocate.dataset.geolocate, geolocate); return; }
   const skip = event.target.closest("[data-skip]");
