@@ -1,4 +1,4 @@
-import { getCreatedBusinesses, saveBusiness, removeLocalBusiness, getFavorites, toggleFavorite } from './catalog.js?v=20261024-1';
+import { getCreatedBusinesses, saveBusiness, removeLocalBusiness, getFavorites, toggleFavorite } from './catalog.js?v=20261024-2';
 export const account = { loading: true, shared: false, businesses: [], error: '' };
 const OWNED_KEY = 'raizes:published-ids:v1';
 const MANAGEMENT_KEY = 'raizes:management-keys:v1';

@@ -1,7 +1,8 @@
+import { DEMO_BUSINESSES } from "../tests/fixtures/businesses.js";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_PREFERENCES as defaults, parsePrice, approximateLocation, distanceKm, getPreferences, savePreferences, recommendProducts, rankBusinesses } from './discovery.js';
-import { DEMO_BUSINESSES } from './catalog.js';
+
 
 test('orçamento aceita centavos, zero e preços sob consulta, rejeita valores inválidos', () => {
   assert.equal(parsePrice('12,50'), 12.5);
@@ -41,3 +42,4 @@ test('preferências persistem sem coordenadas precisas e suportam armazenamento 
   assert.equal(savePreferences(defaults, null).ok, false);
   assert.deepEqual(getPreferences({getItem:()=>'{broken'}), defaults);
 });
+

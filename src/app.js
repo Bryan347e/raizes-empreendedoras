@@ -1,10 +1,10 @@
 import {
-  CATEGORIES, UNITS, DEMO_BUSINESSES, getAllBusinesses,
+  CATEGORIES, UNITS, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
   filterBusinesses, validateBusiness, groupBusinessesByResponsible
-} from "./catalog.js?v=20261024-1";
-import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness } from "./api.js?v=20261024-1";
-import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261024-1";
+} from "./catalog.js?v=20261024-2";
+import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness } from "./api.js?v=20261024-2";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261024-2";
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -121,7 +121,7 @@ function shell(content, active = "") {
     <footer class="site-footer">
       <div class="page-width footer-grid">
         <div><p class="footer-name">Raízes Empreendedoras</p><p>Entre marcas, ideias e pessoas da comunidade ETEC.</p></div>
-        <div><p class="footer-label">Da comunidade ETEC</p><p>Exemplos, preços e locais demonstrativos estão identificados. Cada anúncio identifica o responsável informado. Não é preciso criar conta. Favoritos, preferências e a lista dos seus anúncios ficam neste navegador.</p><a class="text-link" href="#/privacidade">Privacidade e uso dos dados</a></div>
+        <div><p class="footer-label">Da comunidade ETEC</p><p>Cada anúncio identifica o responsável informado. Não é preciso criar conta. Favoritos, preferências e a lista dos seus anúncios ficam neste navegador.</p><a class="text-link" href="#/privacidade">Privacidade e uso dos dados</a></div>
       </div>
     </footer>
     <nav class="bottom-nav" aria-label="Navegação no celular">
@@ -175,11 +175,11 @@ function renderPreferences(standalone = false) {
 
 function renderRecommendations() {
   const results = recommendProducts(allBusinesses(), preferences);
-  return `<section class="page-width recommendations-section" aria-labelledby="recommended-title"><div class="section-heading"><div><p class="section-intro">Escolhas para o seu dia</p><h2 id="recommended-title">Para você e para o seu bolso</h2></div><a class="text-link" href="#/preferencias">Ajustar minhas preferências</a></div><p class="demo-context">Sugestões por gostos e orçamento, com proximidade aproximada quando disponível. Preços e regiões dos exemplos são fictícios.</p>${results.length ? `<div class="product-grid">${results.map(({ business, product, matchesTaste }) => `<article class="product-card"><a class="product-photo" href="${businessUrl(business.id)}" aria-label="Conhecer ${escapeHTML(product.name)} de ${escapeHTML(business.name)}">${imageMarkup(business)}</a><div><span class="category-label">${escapeHTML(business.category)}</span><h3><a href="${businessUrl(business.id)}">${escapeHTML(product.name)}</a></h3><p>${escapeHTML(business.name)}</p><strong class="product-price">${money(product.price)}</strong><p class="product-reason">${matchesTaste ? "Combina com seus gostos" : "Explore esta sugestão"}</p><small>${escapeHTML(business.neighborhood || "Região não informada")}${business.demo ? " · Exemplo demonstrativo" : ""}</small>${distanceMarkup(business)}</div></article>`).join("")}</div>` : '<div class="empty-state"><h3>Nenhum produto dentro desta seleção</h3><p>Tente ampliar o orçamento ou escolher outras categorias. Não incluímos preços desconhecidos como se estivessem dentro do seu limite.</p><a class="button button-dark" href="#/preferencias">Ajustar preferências</a></div>'}</section>`;
+  return `<section class="page-width recommendations-section" aria-labelledby="recommended-title"><div class="section-heading"><div><p class="section-intro">Escolhas para o seu dia</p><h2 id="recommended-title">Para você e para o seu bolso</h2></div><a class="text-link" href="#/preferencias">Ajustar minhas preferências</a></div><p class="demo-context">Sugestões por gostos e orçamento, com proximidade aproximada quando disponível.</p>${results.length ? `<div class="product-grid">${results.map(({ business, product, matchesTaste }) => `<article class="product-card"><a class="product-photo" href="${businessUrl(business.id)}" aria-label="Conhecer ${escapeHTML(product.name)} de ${escapeHTML(business.name)}">${imageMarkup(business)}</a><div><span class="category-label">${escapeHTML(business.category)}</span><h3><a href="${businessUrl(business.id)}">${escapeHTML(product.name)}</a></h3><p>${escapeHTML(business.name)}</p><strong class="product-price">${money(product.price)}</strong><p class="product-reason">${matchesTaste ? "Combina com seus gostos" : "Explore esta sugestão"}</p><small>${escapeHTML(business.neighborhood || "Região não informada")}${business.demo ? " · Exemplo demonstrativo" : ""}</small>${distanceMarkup(business)}</div></article>`).join("")}</div>` : '<div class="empty-state"><h3>Nenhum produto dentro desta seleção</h3><p>Tente ampliar o orçamento ou escolher outras categorias. Não incluímos preços desconhecidos como se estivessem dentro do seu limite.</p><a class="button button-dark" href="#/preferencias">Ajustar preferências</a></div>'}</section>`;
 }
 
 function renderHome() {
-  const featured = DEMO_BUSINESSES.filter((business) => business.featured);
+  const featured = allBusinesses().filter((business) => business.featured);
   return `<section class="hero">
     <div class="page-width hero-grid">
       <div class="hero-content">
@@ -195,7 +195,7 @@ function renderHome() {
         <div class="hero-actions"><a class="button button-gold" href="#/divulgar">Divulgar minha marca ${icon("arrow", 18)}</a><a class="text-link hero-explore" href="#/explorar">Explorar negócios ${icon("arrow", 18)}</a></div>
       </div>
       <div class="hero-feature" aria-label="Destaque da comunidade">
-        <div class="hero-feature-photo">${imageMarkup(featured[0], "hero-photo")}</div>
+        <div class="hero-feature-photo">${imageMarkup({ name: "Empreendedorismo estudantil", images: ["assets/brownies.png"], imageAlt: "Brownies artesanais, imagem ilustrativa" }, "hero-photo")}</div>
         <div class="hero-feature-label"><span>Feito por estudantes</span><strong>Ideias que criam raízes.</strong></div>
         <div class="hero-leaf hero-leaf-one"></div><div class="hero-leaf hero-leaf-two"></div>
       </div>
@@ -207,15 +207,10 @@ function renderHome() {
     <div class="section-heading"><div><p class="section-intro">Explore do seu jeito</p><h2 id="categories-title">O que você procura hoje?</h2></div><a class="text-link" href="#/explorar">Ver todos os negócios ${icon("arrow", 18)}</a></div>
     <div class="category-grid">${CATEGORIES.map((category, index) => `<a class="category-tile category-${index + 1}" href="#/explorar?categoria=${encodeURIComponent(category)}"><span class="category-icon">${icon(categoryIcons[category], 29)}</span><span>${escapeHTML(category)}</span>${icon("arrow", 17)}</a>`).join("")}</div>
   </section>
-  <section class="featured-section page-width" aria-labelledby="featured-title">
+  ${featured.length ? `<section class="featured-section page-width" aria-labelledby="featured-title">
     <div class="section-heading"><div><p class="section-intro">Da comunidade para a comunidade</p><h2 id="featured-title">Marcas em destaque</h2></div><a class="text-link" href="#/explorar">Explorar a vitrine ${icon("arrow", 18)}</a></div>
-    <p class="demo-context">Conheça alguns exemplos de como negócios estudantis podem aparecer na plataforma.</p>
-    <div class="business-grid">${featured.map(businessCard).join("")}</div>
-  </section>
-  <section class="story-section page-width" aria-labelledby="story-title">
-    <div class="story-photo">${imageMarkup(featured[2])}</div>
-    <div class="story-copy"><p class="section-intro">Na revista · história demonstrativa</p><h2 id="story-title">Uma identidade para cada começo</h2><p>No Aurora Studio, a experiência de aprender design encontra os sonhos de quem está tirando uma marca do papel. Cada projeto começa com uma conversa e ganha forma para circular na comunidade.</p><a class="text-link" href="${businessUrl(featured[2].id)}">Conhecer o Aurora Studio ${icon("arrow", 18)}</a></div>
-  </section>
+    <p class="demo-context">Conheça negócios da comunidade estudantil.</p>
+    <div class="business-grid">${featured.map(businessCard).join("")}</div></section>` : ""}
   <section class="editorial-section">
     <div class="page-width editorial-grid"><div class="editorial-mark">${icon("sprout", 58)}<span>entre<br>marcas</span></div><div><p class="section-intro">Revista digital e vitrine</p><h2>Cada marca tem uma história para contar.</h2><p>Um espaço para descobrir talentos, conhecer trajetórias e criar pontes entre estudantes de diferentes unidades.</p></div><a class="button button-light" href="#/divulgar">Conte a história da sua marca ${icon("arrow", 18)}</a></div>
   </section>`;
@@ -251,7 +246,7 @@ function renderExplore(params) {
         <div class="filter-category-heading"><span>Categoria</span><button id="clear-filters" type="button" class="clear-button">Limpar filtros</button></div>
         <div class="filter-chips" role="group" aria-label="Filtrar por categoria"><button type="button" data-category="" class="filter-chip ${!filters.category ? "is-active" : ""}" aria-pressed="${!filters.category}">Todas</button>${CATEGORIES.map((category) => `<button type="button" data-category="${escapeHTML(category)}" class="filter-chip ${filters.category === category ? "is-active" : ""}" aria-pressed="${filters.category === category}">${escapeHTML(category)}</button>`).join("")}</div>
       </div>
-      <div class="explore-content"><div class="results-heading"><div><h2>Negócios da comunidade</h2><p id="results-count" aria-live="polite"></p></div><span class="demo-pill">Exemplos demonstrativos e seus cadastros</span></div><div id="results-grid" class="business-grid"></div></div>
+      <div class="explore-content"><div class="results-heading"><div><h2>Negócios da comunidade</h2><p id="results-count" aria-live="polite"></p></div><span class="demo-pill">Anúncios da comunidade</span></div><div id="results-grid" class="business-grid"></div></div>
     </section>`;
 }
 
