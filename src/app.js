@@ -2,9 +2,10 @@ import {
   CATEGORIES, UNITS, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
   filterBusinesses, validateBusiness, groupBusinessesByResponsible, imageCandidates
-} from "./catalog.js?v=20261028-2";
-import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness, recoveryCode, restoreAccess } from "./api.js?v=20261028-2";
-import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261028-2";
+} from "./catalog.js?v=20261028-3";
+import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness, recoveryCode, restoreAccess } from "./api.js?v=20261028-3";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261028-3";
+import { prepareImageSelection } from './image-upload.js?v=20261028-3';
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -449,31 +450,6 @@ function updatePreview() {
   });
 }
 
-async function prepareImage(file) {
-  if (!/^image\/(jpeg|png|webp)$/.test(file.type) && !(!file.type && /\.(jpe?g|jfif|png|webp)$/i.test(file.name))) throw new Error("Use imagens JPG, PNG ou WebP. Converta outros formatos antes de anexar.");
-  if (file.size > 8 * 1024 * 1024) throw new Error("Cada imagem deve ter no máximo 8 MB.");
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = new Image();
-    image.src = objectUrl;
-    try { await image.decode(); }
-    catch { throw new Error('Não foi possível abrir esta foto. Ela pode estar danificada. Escolha outra imagem JPG, PNG ou WebP.'); }
-    const scale = Math.min(1, 900 / Math.max(image.naturalWidth, image.naturalHeight));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error('O navegador não conseguiu preparar a foto. Tente outra imagem ou reabra o site.');
-    context.fillStyle = "#faf6e9";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    let prepared = canvas.toDataURL("image/jpeg", 0.68);
-    if (prepared.length > 200000) prepared = canvas.toDataURL('image/jpeg', 0.45);
-    if (prepared.length > 200000) throw new Error("Esta foto ainda ficou grande após a redução. Escolha uma imagem menor ou com menos detalhes.");
-    return prepared;
-  } finally { URL.revokeObjectURL(objectUrl); }
-}
-
 function showFormErrors(errors) {
   const form = document.querySelector("#publish-form");
   form.querySelectorAll(".field-error").forEach((element) => { element.textContent = ""; });
@@ -595,9 +571,14 @@ function setupPublish(existing = null) {
     const submit = form.querySelector('[type="submit"]'); submit.disabled = true;
     error.textContent = 'Preparando fotos…';
     try {
-      const prepared = [];
-      for (const file of selected) prepared.push(await prepareImage(file));
-      if (input.isConnected) { photos.push(...prepared); setPhotoIssue(input,''); updatePreview(); }
+      const failures = await prepareImageSelection(selected, {
+        isActive: () => input.isConnected,
+        onProgress: (current, total) => { error.textContent = `Preparando foto ${current} de ${total}…`; },
+        onPrepared: prepared => { photos.push(prepared); updatePreview(); }
+      });
+      if (input.isConnected) {
+        setPhotoIssue(input, failures.length ? `${failures.map(failure => `${failure.name}: ${failure.message}`).join(' ')} As outras fotos foram mantidas. Selecione novamente apenas as que falharam ou descarte a seleção que falhou.` : '');
+      }
     } catch (failure) { if(input.isConnected)setPhotoIssue(input,failure.message || 'Não foi possível ler esta imagem. Escolha outra foto ou descarte esta seleção.'); }
     finally { pendingUploads--; input.value = ''; input.disabled = false; submit.disabled = pendingUploads > 0 || submitting; }
   });
@@ -789,4 +770,3 @@ if (!location.hash) history.replaceState(null, "", "#/inicio");
 previousHash = location.hash;
 render();
 loadAccount().then(() => { if (!publishDirty) render({ scrollTop: false }); });
-

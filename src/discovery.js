@@ -1,4 +1,4 @@
-import { CATEGORIES, normalizeText } from "./catalog.js?v=20261028-2";
+import { CATEGORIES, normalizeText } from "./catalog.js?v=20261028-3";
 
 export const PREFERENCES_KEY = "raizes:preferences:v1";
 export const DEFAULT_PREFERENCES = { city: "São Paulo", neighborhood: "", categories: [], tastes: "", minPrice: "", maxPrice: "", location: null };
@@ -91,4 +91,3 @@ export function recommendProducts(businesses, preferences = DEFAULT_PREFERENCES,
     .flatMap(business => productsOf(business).filter(p => withinBudget(p, preferences)).map(product => ({ business, product, matchesTaste: tasteScore(business, product, preferences) > 0 })));
   return candidates.sort((a, b) => Number(b.matchesTaste) - Number(a.matchesTaste) || proximityOrder(a.business, b.business, preferences) || (a.product.price ?? Infinity) - (b.product.price ?? Infinity)).slice(0, limit);
 }
-
