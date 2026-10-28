@@ -1,10 +1,10 @@
 import {
   CATEGORIES, UNITS, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
-  filterBusinesses, validateBusiness, groupBusinessesByResponsible
-} from "./catalog.js?v=20261028-1";
-import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness, recoveryCode, restoreAccess } from "./api.js?v=20261028-1";
-import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261028-1";
+  filterBusinesses, validateBusiness, groupBusinessesByResponsible, imageCandidates
+} from "./catalog.js?v=20261028-2";
+import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness, recoveryCode, restoreAccess } from "./api.js?v=20261028-2";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261028-2";
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -18,7 +18,6 @@ let preferenceDraft = { ...preferences, categories: [...preferences.categories] 
 let businessLocation = null;
 let productRowId = 0;
 let productPhotos = new Map();
-let pendingUploads = 0;
 
 function allBusinesses() {
   const byId = new Map(getAllBusinesses().map(b => [b.id, b]));
@@ -80,11 +79,13 @@ function contactMarkup(business) {
   return `<p>${escapeHTML(contact)}</p>`;
 }
 
-function imageMarkup(business, className = "") {
-  const source = safeImageSrc(business.images?.[0]);
+function imageMarkup(business, className = "", product = null) {
+  const candidates = imageCandidates(business, product);
+  const source = candidates[0]?.src || '';
+  const fallbacks = candidates.slice(1).filter(photo => !photo.src.startsWith('data:'));
   const eager = className.includes("hero-photo");
   return `<span class="photo-frame ${className}">
-    ${source ? `<img src="${escapeHTML(source)}" alt="${escapeHTML(business.imageAlt || `Foto enviada para ${business.name}`)}" width="640" height="450" loading="${eager ? "eager" : "lazy"}" ${eager ? 'fetchpriority="high"' : ""} data-business-image>` : ""}
+    ${source ? `<img src="${escapeHTML(source)}" alt="${escapeHTML(candidates[0].alt)}" width="640" height="450" loading="${eager ? "eager" : "lazy"}" ${eager ? 'fetchpriority="high"' : ""} data-business-image data-image-fallbacks="${escapeHTML(JSON.stringify(fallbacks))}">` : ""}
     <span class="photo-fallback">${icon("image", 30)}<span>Imagem indisponível</span></span>
   </span>`;
 }
@@ -175,7 +176,7 @@ function renderPreferences(standalone = false) {
 
 function renderRecommendations() {
   const results = recommendProducts(allBusinesses(), preferences);
-  return `<section class="page-width recommendations-section" aria-labelledby="recommended-title"><div class="section-heading"><div><p class="section-intro">Escolhas para o seu dia</p><h2 id="recommended-title">Para você e para o seu bolso</h2></div><a class="text-link" href="#/preferencias">Ajustar minhas preferências</a></div><p class="demo-context">Sugestões por gostos e orçamento, com proximidade aproximada quando disponível.</p>${results.length ? `<div class="product-grid">${results.map(({ business, product, matchesTaste }) => `<article class="product-card"><a class="product-photo" href="${businessUrl(business.id)}" aria-label="Conhecer ${escapeHTML(product.name)} de ${escapeHTML(business.name)}">${imageMarkup(business)}</a><div><span class="category-label">${escapeHTML(business.category)}</span><h3><a href="${businessUrl(business.id)}">${escapeHTML(product.name)}</a></h3><p>${escapeHTML(business.name)}</p><strong class="product-price">${money(product.price)}</strong><p class="product-reason">${matchesTaste ? "Combina com seus gostos" : "Explore esta sugestão"}</p><small>${escapeHTML(business.neighborhood || "Região não informada")}${business.demo ? " · Exemplo demonstrativo" : ""}</small>${distanceMarkup(business)}</div></article>`).join("")}</div>` : '<div class="empty-state"><h3>Nenhum produto dentro desta seleção</h3><p>Tente ampliar o orçamento ou escolher outras categorias. Não incluímos preços desconhecidos como se estivessem dentro do seu limite.</p><a class="button button-dark" href="#/preferencias">Ajustar preferências</a></div>'}</section>`;
+  return `<section class="page-width recommendations-section" aria-labelledby="recommended-title"><div class="section-heading"><div><p class="section-intro">Escolhas para o seu dia</p><h2 id="recommended-title">Para você e para o seu bolso</h2></div><a class="text-link" href="#/preferencias">Ajustar minhas preferências</a></div><p class="demo-context">Sugestões por gostos e orçamento, com proximidade aproximada quando disponível.</p>${results.length ? `<div class="product-grid">${results.map(({ business, product, matchesTaste }) => `<article class="product-card"><a class="product-photo" href="${businessUrl(business.id)}" aria-label="Conhecer ${escapeHTML(product.name)} de ${escapeHTML(business.name)}">${imageMarkup(business, "", product)}</a><div><span class="category-label">${escapeHTML(business.category)}</span><h3><a href="${businessUrl(business.id)}">${escapeHTML(product.name)}</a></h3><p>${escapeHTML(business.name)}</p><strong class="product-price">${money(product.price)}</strong><p class="product-reason">${matchesTaste ? "Combina com seus gostos" : "Explore esta sugestão"}</p><small>${escapeHTML(business.neighborhood || "Região não informada")}${business.demo ? " · Exemplo demonstrativo" : ""}</small>${distanceMarkup(business)}</div></article>`).join("")}</div>` : '<div class="empty-state"><h3>Nenhum produto dentro desta seleção</h3><p>Tente ampliar o orçamento ou escolher outras categorias. Não incluímos preços desconhecidos como se estivessem dentro do seu limite.</p><a class="button button-dark" href="#/preferencias">Ajustar preferências</a></div>'}</section>`;
 }
 
 function renderHome() {
@@ -328,6 +329,8 @@ function confirmDeleteBusiness(business, opener) {
 
 function renderDetail(id, params) {
   const business = allBusinesses().find((item) => item.id === id);
+  if (!business && account.loading) return '<section class="page-width page-heading"><h1>Carregando anúncio</h1><p role="status">Buscando as informações e as fotos da marca…</p></section>';
+  if (!business && account.error) return '<section class="page-width page-heading"><h1>Não foi possível carregar o anúncio</h1><p>Confira sua conexão e tente novamente. O anúncio ainda não pôde ser consultado.</p><button class="button button-dark" id="retry-account" type="button">Tentar novamente</button></section>';
   if (!business) return `<section class="page-width not-found"><div class="empty-state">${icon("search", 42)}<h1>Negócio não encontrado</h1><p>O endereço pode estar incorreto ou a marca pode ter sido removida deste navegador.</p><a class="button button-dark" href="#/explorar">Explorar negócios</a></div></section>`;
   const otherImages = business.images?.slice(1).filter(safeImageSrc) || [];
   return `<div class="page-width detail-page"><a href="#/explorar" class="back-link">${icon("back", 18)} Voltar para explorar</a>
@@ -362,14 +365,14 @@ function renderPublish(editingId = null) {
         <div class="form-field full"><label for="business-student">Aluno responsável <span aria-hidden="true">*</span></label><input id="business-student" name="student" type="text" maxlength="90" autocomplete="name" required value="" placeholder="Seu nome"><p id="error-student" class="field-error" data-error-for="student"></p></div>
         <div class="form-field full"><label for="business-unit">Unidade ETEC <span aria-hidden="true">*</span></label><select id="business-unit" name="unit" required><option value="">Selecione sua unidade</option>${UNITS.map((unit) => `<option value="${escapeHTML(unit)}">${escapeHTML(unit)}</option>`).join("")}</select><p class="field-hint">Unidades da cidade de São Paulo. A seleção não verifica vínculo estudantil.</p><p id="error-unit" class="field-error" data-error-for="unit"></p></div>
         <div class="form-field full"><label for="business-contact">Contato <span aria-hidden="true">*</span></label><input id="business-contact" name="contact" type="text" maxlength="140" required placeholder="E-mail, perfil profissional ou outro contato"><p class="field-hint">Será exibido na página da marca. Confira antes de salvar.</p><p id="error-contact" class="field-error" data-error-for="contact"></p></div>
-        <div class="form-field full"><label for="business-images">Fotos da marca ou do negócio (até 3)</label><label class="upload-box" for="business-images">${icon("image", 28)}<strong>Adicione até 3 fotos</strong><span>Mostre seu logotipo, sua loja ou sua marca. A primeira foto será a capa. As fotos de cada produto são adicionadas no campo do próprio produto acima. JPG, PNG ou WebP, até 8 MB por arquivo.</span><input id="business-images" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><p id="error-images" class="field-error" data-error-for="images"></p><div id="uploaded-images" class="uploaded-images"></div></div>
+        <div class="form-field full"><label for="business-images">Fotos da marca ou do negócio (até 3)</label><label class="upload-box" for="business-images">${icon("image", 28)}<strong>Adicione até 3 fotos</strong><span>Mostre seu logotipo, sua loja ou sua marca. A primeira foto será a capa. As fotos de cada produto são adicionadas no campo do próprio produto acima. JPG, PNG ou WebP, até 8 MB por arquivo.</span><input id="business-images" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><p id="error-images" class="field-error" role="status" data-error-for="images"></p><button type="button" class="clear-button" data-discard-photo-selection hidden>Descartar seleção que falhou</button><p id="brand-photo-count" class="field-hint" role="status">0 de 3 fotos prontas para salvar.</p><div id="uploaded-images" class="uploaded-images"></div></div>
       </div><div class="form-actions"><button type="submit" class="button button-dark">Publicar minha marca ${icon("arrow", 18)}</button><p>Nome, contato escolhido, produtos, preços, fotos e região de atendimento ficarão públicos. O nome do responsável é declarado por quem publica e não é verificado.</p></div>
     </form><aside class="preview-panel"><div class="preview-heading"><span>Pré-visualização</span><p>Veja como sua marca pode aparecer na vitrine.</p></div><div id="form-preview"></div><p class="preview-note">Confira os dados antes de publicar. Nome e unidade informados não comprovam identidade nem vínculo estudantil.</p></aside></section>`;
 }
 
 function productRow() {
   const id = ++productRowId;
-  return `<div class="product-row" data-product-id="${id}"><div><label for="product-name-${id}">Produto ou serviço</label><input id="product-name-${id}" name="productName" maxlength="100" required placeholder="Ex.: Bolo de chocolate"></div><div><label for="product-price-${id}">Preço (R$)</label><input id="product-price-${id}" name="productPrice" inputmode="decimal" maxlength="12" placeholder="Sob consulta"></div><button type="button" class="remove-product" data-remove-product aria-label="Remover este produto">${icon("close", 18)}</button><div class="product-upload"><label for="product-images-${id}">Fotos deste produto (até 3)</label><input id="product-images-${id}" name="productImages" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="product-photo-hint-${id}"><p id="product-photo-hint-${id}" class="field-hint">Opcional. Escolha fotos apenas deste produto. Cada produto tem seu próprio limite de 3 fotos.</p><p class="field-error" role="status" data-photo-error></p><div class="uploaded-images" data-product-thumbs></div></div></div>`;
+  return `<div class="product-row" data-product-id="${id}"><div><label for="product-name-${id}">Produto ou serviço</label><input id="product-name-${id}" name="productName" maxlength="100" required placeholder="Ex.: Bolo de chocolate"></div><div><label for="product-price-${id}">Preço (R$)</label><input id="product-price-${id}" name="productPrice" inputmode="decimal" maxlength="12" placeholder="Sob consulta"></div><button type="button" class="remove-product" data-remove-product aria-label="Remover este produto">${icon("close", 18)}</button><div class="product-upload"><label for="product-images-${id}">Fotos deste produto (até 3)</label><input id="product-images-${id}" name="productImages" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="product-photo-hint-${id}"><p id="product-photo-hint-${id}" class="field-hint">Opcional. Escolha fotos apenas deste produto. Cada produto tem seu próprio limite de 3 fotos.</p><p id="product-photo-error-${id}" class="field-error" role="status" data-photo-error></p><button type="button" class="clear-button" data-discard-photo-selection hidden>Descartar seleção que falhou</button><p class="field-hint" role="status" data-photo-count>0 de 3 fotos prontas para salvar.</p><div class="uploaded-images" data-product-thumbs></div></div></div>`;
 }
 
 function publishValues(form) {
@@ -437,26 +440,30 @@ function updatePreview() {
   };
   document.querySelector("#form-preview").innerHTML = `<div class="preview-card">${imageMarkup(example)}<div><span class="category-label">${escapeHTML(example.category)}</span><h3>${escapeHTML(example.name)}</h3><p>${escapeHTML(example.shortDescription)}</p><p class="card-author">${icon("user", 16)} Por ${escapeHTML(example.student)}</p><p class="business-price">${minimumPrice(example)}</p><small>${icon("pin", 15)} ${escapeHTML(example.unit)}</small></div></div>`;
   document.querySelector("#uploaded-images").innerHTML = formImages.map((source, index) => `<div class="uploaded-thumb"><img src="${escapeHTML(source)}" alt="Foto selecionada ${index + 1}" width="80" height="80"><button type="button" data-remove-image="${index}" aria-label="Remover foto ${index + 1}">${icon("close", 15)}</button></div>`).join("");
+  document.querySelector('#brand-photo-count').textContent=`${formImages.length} de 3 fotos prontas para salvar.`;
   document.querySelector('#form-preview').insertAdjacentHTML('beforeend', `<h3 class="preview-products-heading">Produtos e preços</h3>${productCatalogMarkup(values.products, true) || '<p class="field-hint">Adicione produtos para vê-los aqui com suas fotos e preços.</p>'}`);
   form.querySelectorAll('.product-row').forEach(row => {
     const name = row.querySelector('[name="productName"]').value.trim() || 'produto';
+    row.querySelector('[data-photo-count]').textContent=`${(productPhotos.get(row.dataset.productId) || []).length} de 3 fotos prontas para salvar.`;
     row.querySelector('[data-product-thumbs]').innerHTML = (productPhotos.get(row.dataset.productId) || []).map((source, index) => `<div class="uploaded-thumb"><img src="${escapeHTML(source)}" alt="${escapeHTML(name)}, foto selecionada ${index + 1}" width="80" height="80"><button type="button" data-remove-product-image="${index}" aria-label="Remover foto ${index + 1} de ${escapeHTML(name)}">${icon('close', 15)}</button></div>`).join('');
   });
 }
 
 async function prepareImage(file) {
-  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("Use imagens JPG, PNG ou WebP.");
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type) && !(!file.type && /\.(jpe?g|jfif|png|webp)$/i.test(file.name))) throw new Error("Use imagens JPG, PNG ou WebP. Converta outros formatos antes de anexar.");
   if (file.size > 8 * 1024 * 1024) throw new Error("Cada imagem deve ter no máximo 8 MB.");
   const objectUrl = URL.createObjectURL(file);
   try {
     const image = new Image();
     image.src = objectUrl;
-    await image.decode();
+    try { await image.decode(); }
+    catch { throw new Error('Não foi possível abrir esta foto. Ela pode estar danificada. Escolha outra imagem JPG, PNG ou WebP.'); }
     const scale = Math.min(1, 900 / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
     const context = canvas.getContext("2d");
+    if (!context) throw new Error('O navegador não conseguiu preparar a foto. Tente outra imagem ou reabra o site.');
     context.fillStyle = "#faf6e9";
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
@@ -486,10 +493,33 @@ function showFormErrors(errors) {
 function setupPublish(existing = null) {
   if (!document.querySelector("#publish-form")) return;
   formImages = [...(existing?.images || [])];
-  productPhotos = new Map(); pendingUploads = 0;
+  productPhotos = new Map(); let pendingUploads = 0;
   businessLocation = existing?.location || null;
   publishDirty = false;
   const form = document.querySelector("#publish-form");
+  const photoIssues = new Map();
+  let submitting = false;
+  const photoGroup = input => input.closest('.product-upload') || input.closest('.form-field');
+  const setPhotoIssue = (input,message) => {
+    const group=photoGroup(input), error=group.querySelector('[data-photo-error], [data-error-for="images"]');
+    if (input.dataset.photoDescription === undefined) input.dataset.photoDescription=input.getAttribute('aria-describedby') || '';
+    if (message) {
+      photoIssues.set(input,message); input.setAttribute('aria-invalid','true');
+      input.setAttribute('aria-describedby',[input.dataset.photoDescription,error.id].filter(Boolean).join(' '));
+    } else {
+      photoIssues.delete(input); input.removeAttribute('aria-invalid');
+      if (input.dataset.photoDescription) input.setAttribute('aria-describedby',input.dataset.photoDescription); else input.removeAttribute('aria-describedby');
+    }
+    error.textContent=message; group.querySelector('[data-discard-photo-selection]').hidden=!message;
+    if (!photoIssues.size && form.dataset.photoOnlyError === 'true') {
+      form.querySelector('#form-error-summary').hidden=true;
+      form.querySelector('[data-error-for="images"]').textContent='';
+      const brand=form.querySelector('#business-images'); brand.removeAttribute('aria-invalid');
+      if(brand.dataset.photoDescription)brand.setAttribute('aria-describedby',brand.dataset.photoDescription);else brand.removeAttribute('aria-describedby');
+      delete form.dataset.photoOnlyError;
+    }
+  };
+  const paintPhotoIssues = () => { for (const [input,message] of photoIssues) if(input.isConnected)setPhotoIssue(input,message); };
   if (existing) {
     for (const key of ['name','category','description','city','neighborhood','tags','student','unit','contact']) {
       const field = form.elements.namedItem(key); if (field) field.value = existing[key] || '';
@@ -518,7 +548,7 @@ function setupPublish(existing = null) {
       if (!form.querySelector('[aria-invalid="true"]')) document.querySelector("#form-error-summary").hidden = true;
     }
   };
-  form.addEventListener("input", handleEdit);
+  form.addEventListener("input", event => { if (event.target.type !== 'file') handleEdit(event); });
   form.addEventListener("change", (event) => { if (event.target.type !== "file") handleEdit(event); });
   document.querySelector("#add-product").addEventListener("click", () => {
     if (form.querySelectorAll(".product-row").length >= 12) { showToast("Você pode informar até 12 produtos ou serviços."); return; }
@@ -531,13 +561,13 @@ function setupPublish(existing = null) {
     if (form.querySelectorAll(".product-row").length === 1) { showToast("Informe ao menos um produto ou serviço."); return; }
     const row = button.closest(".product-row"), next = row.previousElementSibling || row.nextElementSibling;
     productPhotos.delete(row.dataset.productId);
+    setPhotoIssue(row.querySelector('[name="productImages"]'),'');
     row.remove(); next.querySelector("input").focus(); publishDirty = true; updatePreview();
   });
   form.querySelector("#uploaded-images").addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-image]");
     if (!button) return;
     formImages.splice(Number(button.dataset.removeImage), 1);
-    form.querySelector('[data-error-for="images"]').textContent = '';
     publishDirty = true;
     updatePreview();
   });
@@ -546,47 +576,57 @@ function setupPublish(existing = null) {
     if (!remove) return;
     const row = remove.closest('.product-row');
     productPhotos.get(row.dataset.productId)?.splice(Number(remove.dataset.removeProductImage), 1);
-    row.querySelector('[data-photo-error]').textContent = '';
     publishDirty = true; updatePreview();
     row.querySelector('[name="productImages"]').focus();
   });
   form.addEventListener("change", async (event) => {
     const input = event.target;
-    if (input.type !== 'file') return;
+    if (input.type !== 'file' || submitting) return;
     const row = input.closest('.product-row');
     const photos = row ? (productPhotos.get(row.dataset.productId) || []) : formImages;
     if (row) productPhotos.set(row.dataset.productId, photos);
     const error = row ? row.querySelector('[data-photo-error]') : form.querySelector('[data-error-for="images"]');
-    error.textContent = "";
     const selected = [...input.files];
-    if (selected.length + photos.length > 3) { error.textContent = row ? 'Cada produto pode ter até 3 fotos. Remova uma antes de adicionar outra.' : 'O negócio pode ter até 3 fotos. Remova uma antes de adicionar outra.'; input.value = ""; return; }
     if (!selected.length) return;
+    publishDirty=true;
+    if (selected.length + photos.length > 3) { setPhotoIssue(input,row ? 'Cada produto pode ter até 3 fotos. Remova uma antes de adicionar outra ou descarte a seleção que falhou.' : 'O negócio pode ter até 3 fotos. Remova uma antes de adicionar outra ou descarte a seleção que falhou.'); input.value = ''; return; }
+    setPhotoIssue(input,'');
     pendingUploads++; input.disabled = true; publishDirty = true;
     const submit = form.querySelector('[type="submit"]'); submit.disabled = true;
     error.textContent = 'Preparando fotos…';
     try {
       const prepared = [];
       for (const file of selected) prepared.push(await prepareImage(file));
-      if (input.isConnected) { photos.push(...prepared); error.textContent = ''; updatePreview(); }
-    } catch (failure) { error.textContent = failure.message || "Não foi possível ler esta imagem."; }
-    finally { pendingUploads--; input.value = ''; input.disabled = false; submit.disabled = pendingUploads > 0; }
+      if (input.isConnected) { photos.push(...prepared); setPhotoIssue(input,''); updatePreview(); }
+    } catch (failure) { if(input.isConnected)setPhotoIssue(input,failure.message || 'Não foi possível ler esta imagem. Escolha outra foto ou descarte esta seleção.'); }
+    finally { pendingUploads--; input.value = ''; input.disabled = false; submit.disabled = pendingUploads > 0 || submitting; }
+  });
+  form.addEventListener('click',event=>{
+    const button=event.target.closest('[data-discard-photo-selection]'); if(!button)return;
+    const input=(button.closest('.product-upload') || button.closest('.form-field')).querySelector('input[type="file"]');
+    setPhotoIssue(input,''); input.value=''; input.focus();
   });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (pendingUploads) { showToast('Aguarde o preparo das fotos antes de publicar.'); return; }
     const values = publishValues(form);
     const errors = validateBusiness(values);
-    if (Object.keys(errors).length) { showFormErrors(errors); return; }
+    if (photoIssues.size) errors.images='Uma seleção de fotos falhou. Corrija o arquivo ou use “Descartar seleção que falhou” antes de salvar.';
+    form.dataset.photoOnlyError=String(photoIssues.size>0 && Object.keys(errors).length===1 && !!errors.images);
+    if (Object.keys(errors).length) { showFormErrors(errors); paintPhotoIssues(); return; }
     const button = form.querySelector('[type="submit"]');
     if (button.disabled) return;
+    submitting=true;
+    const controls=[...form.querySelectorAll('input,select,textarea,button')].map(control=>({control,disabled:control.disabled}));
+    controls.forEach(({control})=>{control.disabled=true;});
     button.disabled = true; button.textContent = existing ? 'Salvando alterações…' : "Publicando sua marca…";
     try {
       const business = await publishBusiness(values, formImages, existing?.id);
       publishDirty = false;
       location.hash = `${businessUrl(business.id)}?${existing ? 'editado' : 'criado'}=1${business.localTrackingFailed ? "&aviso=1" : ""}`;
     } catch (error) {
-      if (form.isConnected) showFormErrors(error.errors || { form: error.message });
-    } finally { if (button.isConnected) { button.disabled = false; button.textContent = existing ? 'Salvar alterações' : "Publicar minha marca"; } }
+      if (form.isConnected) { showFormErrors(error.errors || { form: error.message }); paintPhotoIssues(); }
+    } finally { submitting=false; if (button.isConnected) { controls.forEach(({control,disabled})=>{control.disabled=disabled;}); button.disabled = false; button.textContent = existing ? 'Salvar alterações' : "Publicar minha marca"; } }
   });
   updatePreview();
 }
@@ -722,7 +762,13 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("error", (event) => {
-  if (event.target.matches?.("[data-business-image]")) event.target.closest(".photo-frame")?.classList.add("is-missing");
+  const image = event.target;
+  if (!image.matches?.('[data-business-image]')) return;
+  let candidates=[]; try { candidates=JSON.parse(image.dataset.imageFallbacks || '[]'); } catch {}
+  const next=candidates.shift();
+  if (next && safeImageSrc(next.src)) {
+    image.dataset.imageFallbacks=JSON.stringify(candidates); image.alt=next.alt; image.src=next.src;
+  } else image.closest('.photo-frame')?.classList.add('is-missing');
 }, true);
 
 window.addEventListener("hashchange", () => {

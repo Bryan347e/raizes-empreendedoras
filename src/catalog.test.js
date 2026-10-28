@@ -83,3 +83,15 @@ test("falha ao gravar informa o problema sem adicionar uma marca", () => {
   assert.match(result.errors.form, /Não foi possível salvar/);
 });
 
+test('a capa usa fotos dos produtos quando não há foto da marca, sem misturar produtos nas recomendações',async()=>{
+  const {imageCandidates}=await import('./catalog.js');
+  const brand='api/imagens/11111111-1111-1111-1111-111111111111',nails='api/imagens/22222222-2222-2222-2222-222222222222',other='api/imagens/33333333-3333-3333-3333-333333333333';
+  const business={name:'Marca',images:[],products:[{name:'Produto A',images:[nails]},{name:'Produto B',images:[other]}]};
+  assert.deepEqual(imageCandidates(business).map(p=>p.src),[nails,other]);
+  assert.match(imageCandidates(business)[0].alt,/Produto A/);
+  assert.deepEqual(imageCandidates({...business,images:[brand]}).map(p=>p.src),[brand,nails,other]);
+  assert.deepEqual(imageCandidates({...business,images:[brand]},business.products[1]).map(p=>p.src),[other,brand]);
+  assert.deepEqual(imageCandidates(business,{name:'Sem foto',images:[]}),[]);
+  assert.deepEqual(imageCandidates({...business,images:[brand,brand,'javascript:bad','https://outside.invalid/photo.jpg'],products:[]}).map(p=>p.src),[brand]);
+});
+

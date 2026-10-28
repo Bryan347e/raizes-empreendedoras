@@ -157,3 +157,21 @@ test('reenvio após perda da resposta não duplica o anúncio e não permite tom
   assert.equal((await call('businesses','POST',{...body,businessId:'inválido'})).status,400);
 });
 
+test('fotos apenas no produto são armazenadas e devolvidas sem alteração dos bytes',async()=>{
+  const {call}=setup();
+  const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
+  const token='9'.repeat(64);
+  const created=(await (await call('businesses','POST',{business:{...business,products:[{name:'Produto com fotos',price:15,images:[png,png,png]}]},images:[],managementToken:token})).json()).business;
+  const read=(await (await call(`businesses?ids=${created.id}`)).json()).businesses[0];
+  assert.equal(read.images.length,0);assert.equal(read.products[0].images.length,3);
+  for(const path of read.products[0].images){
+    const response=await call(path.slice(4));assert.equal(response.status,200);
+    assert.equal(Buffer.from(await response.arrayBuffer()).toString('base64'),png.split(',')[1]);
+  }
+  const editedResponse=await call(`businesses/${created.id}`,'PUT',{business:{...business,products:[{name:'Produto atualizado',price:20,images:read.products[0].images}]},images:[]},{'x-raizes-management':token});
+  assert.equal(editedResponse.status,200);const edited=(await editedResponse.json()).business;
+  assert.equal(edited.products[0].images.length,3);
+  const response=await call(edited.products[0].images[0].slice(4));
+  assert.equal(Buffer.from(await response.arrayBuffer()).toString('base64'),png.split(',')[1]);
+});
+

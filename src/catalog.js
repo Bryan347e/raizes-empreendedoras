@@ -58,6 +58,20 @@ export const UNITS = [
 export const BUSINESS_KEY = "raizes:businesses:v1";
 export const FAVORITES_KEY = "raizes:favorites:v1";
 
+export function imageCandidates(business, product = null) {
+  const result = [], seen = new Set();
+  const add = (images, alt) => {
+    for (const src of Array.isArray(images) ? images : []) {
+      if (typeof src !== 'string' || seen.has(src) || !(/^(?:assets\/[a-z0-9-]+\.(?:png|jpe?g|webp)|api\/imagens\/[a-f0-9-]{36})$/i.test(src) || /^data:image\/(png|jpeg|webp);base64,/i.test(src))) continue;
+      seen.add(src); result.push({src,alt});
+    }
+  };
+  if (product) add(product.images, `Foto de ${product.name}, de ${business.name}`);
+  add(business.images, business.imageAlt || `Foto de ${business.name}`);
+  if (!product) for (const item of Array.isArray(business.products) ? business.products : []) if (item) add(item.images, `Foto de ${item.name}, de ${business.name}`);
+  return result;
+}
+
 function browserStorage() {
   try { return globalThis.localStorage; }
   catch { return null; }
