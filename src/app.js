@@ -2,9 +2,9 @@ import {
   CATEGORIES, UNITS, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
   filterBusinesses, validateBusiness, groupBusinessesByResponsible
-} from "./catalog.js?v=20261024-2";
-import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness } from "./api.js?v=20261024-2";
-import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261024-2";
+} from "./catalog.js?v=20261028-1";
+import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness, recoveryCode, restoreAccess } from "./api.js?v=20261028-1";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261028-1";
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -269,11 +269,24 @@ function renderFavorites() {
 function renderProfile() {
   const remembered = new Set([...ownedBusinessIds(), ...getCreatedBusinesses().map(b => b.id)]);
   const groups = groupBusinessesByResponsible(allBusinesses().filter(b => remembered.has(b.id)));
-  return `<section class="page-heading page-width"><p class="section-intro">Seu espaço</p><h1>Meus anúncios</h1><p>As lojas que este navegador lembra, separadas pelo responsável informado.</p></section><section class="page-width listing-section"><div class="service-notice"><strong>Sem conta e sem login.</strong><p>Esta lista fica apenas neste navegador. Em outro aparelho ela pode estar vazia. Se outras pessoas publicarem neste mesmo navegador, os anúncios serão organizados pelos nomes e unidades informados. Os nomes não comprovam identidade nem vínculo com a ETEC. Para excluir um anúncio novo, use este mesmo navegador e confirme em “Excluir anúncio”. Apagar os dados do navegador também apaga a chave de exclusão.</p><a class="button button-dark" href="#/divulgar">Divulgar minha marca</a></div>${groups.length ? groups.map(group => `<section class="responsible-group"><div class="section-heading"><div><p class="section-intro">Responsável informado</p><h2>${escapeHTML(group.student)} <span class="count-badge">${group.businesses.length}</span></h2><p>${escapeHTML(group.unit)}</p></div></div><div class="business-grid">${group.businesses.map(ownBusinessCard).join("")}</div></section>`).join("") : '<div class="empty-state"><h2>Você ainda não publicou neste navegador</h2><p>Informe o responsável no cadastro da loja. Os anúncios públicos de outras pessoas ficam em Explorar.</p><a class="text-link" href="#/explorar">Explorar negócios</a></div>'}</section>`;
+  return `<section class="page-heading page-width"><p class="section-intro">Seu espaço</p><h1>Meus anúncios</h1><p>Suas lojas, com acesso para editar e excluir.</p></section><section class="page-width listing-section"><div class="service-notice"><strong>Guarde o acesso à sua marca.</strong><p>O acesso é lembrado neste navegador. Use “Guardar código de acesso” no seu anúncio para salvar um código privado: com ele, você poderá recuperar a loja em outro navegador ou aparelho. Sem o código, apagar os dados do site pode causar perda do acesso. Nome e unidade ETEC não comprovam identidade.</p><div class="profile-actions"><a class="button button-dark" href="#/divulgar">Divulgar minha marca</a><button class="button button-light" type="button" id="refresh-owned" ${account.loading ? 'disabled' : ''}>${account.loading ? 'Carregando anúncios…' : 'Atualizar meus anúncios'}</button></div></div><details class="access-recovery"><summary>Recuperar acesso a um anúncio</summary><form id="restore-access-form"><label for="restore-code">Código privado do anúncio</label><input type="password" id="restore-code" name="accessCode" autocomplete="off" spellcheck="false" required placeholder="Cole o código começando por raizes1." aria-describedby="restore-help"><p class="field-hint" id="restore-help">Cole o código que você guardou ao publicar. O nome da marca ou do responsável não dá acesso para editar ou excluir. Não compartilhe o código com outras pessoas.</p><button type="submit" class="button button-dark">Recuperar meu anúncio</button><p id="restore-error" class="field-error" role="alert"></p></form></details>${account.loading ? '<p role="status">Carregando seus anúncios…</p>' : groups.length ? groups.map(group => `<section class="responsible-group"><div class="section-heading"><div><p class="section-intro">Responsável informado</p><h2>${escapeHTML(group.student)} <span class="count-badge">${group.businesses.length}</span></h2><p>${escapeHTML(group.unit)}</p></div></div><div class="business-grid">${group.businesses.map(ownBusinessCard).join('')}</div></section>`).join('') : '<div class="empty-state"><h2>Nenhum anúncio lembrado neste navegador</h2><p>Se publicou em outro navegador ou aparelho, recupere o acesso com seu código privado acima. Novos anúncios publicados aqui ficam nesta lista.</p><a class="text-link" href="#/explorar">Explorar negócios</a></div>'}</section>`;
 }
-
 function ownBusinessCard(business) {
-  return `<div class="owned-business">${businessCard(business)}${canDeleteBusiness(business) ? `<button type="button" class="delete-business-button" data-delete-business="${escapeHTML(business.id)}" aria-label="Excluir anúncio de ${escapeHTML(business.name)}">${icon('close', 18)} Excluir anúncio</button>` : '<p class="field-hint legacy-delete-note">Anúncio antigo: sem chave de exclusão neste navegador. A exclusão estará disponível nos novos anúncios publicados aqui.</p>'}</div>`;
+  return `<div class="owned-business">${businessCard(business)}${canDeleteBusiness(business) ? `<div class="owned-actions"><a class="button button-dark" href="#/editar/${encodeURIComponent(business.id)}">Editar anúncio</a>${business.shared ? `<button type="button" class="button button-light" data-save-access="${escapeHTML(business.id)}">Guardar código de acesso</button>` : ''}<button type="button" class="delete-business-button" data-delete-business="${escapeHTML(business.id)}" aria-label="Excluir anúncio de ${escapeHTML(business.name)}">${icon('close',18)} Excluir anúncio</button></div>` : '<p class="field-hint legacy-delete-note">Acesso de edição indisponível neste navegador. Use seu código privado em “Recuperar acesso a um anúncio”. Anúncios antigos sem chave não podem ser recuperados por nome.</p>'}</div>`;
+}
+function showAccessCode(business, opener) {
+  const code = recoveryCode(business); if (!code) return;
+  const dialog = document.createElement('dialog'); dialog.className='delete-dialog access-dialog';
+  dialog.setAttribute('aria-labelledby','access-title'); dialog.setAttribute('aria-describedby','access-description');
+  dialog.innerHTML=`<h2 id="access-title">Guarde o acesso à sua marca</h2><p id="access-description">Este código permite editar e excluir <strong>${escapeHTML(business.name)}</strong> em outro navegador. Guarde em um lugar privado. Quem tiver o código poderá controlar este anúncio.</p><label for="private-access-code">Código privado</label><textarea id="private-access-code" readonly rows="5" spellcheck="false" autocomplete="off">${escapeHTML(code)}</textarea><p role="status" data-copy-status></p><div class="delete-dialog-actions"><button type="button" class="button button-light" data-close-access autofocus>Fechar</button><button type="button" class="button button-dark" data-copy-access>Copiar código</button></div>`;
+  document.body.append(dialog);
+  dialog.addEventListener('close',()=>{dialog.remove(); if(opener?.isConnected)opener.focus();});
+  dialog.querySelector('[data-close-access]').addEventListener('click',()=>dialog.close());
+  dialog.querySelector('[data-copy-access]').addEventListener('click',async()=>{
+    try { await navigator.clipboard.writeText(code); dialog.querySelector('[data-copy-status]').textContent='Código copiado. Salve em um lugar privado.'; }
+    catch { const input=dialog.querySelector('textarea'); input.focus(); input.select(); dialog.querySelector('[data-copy-status]').textContent='Selecione e copie o código para guardá-lo.'; }
+  });
+  dialog.showModal();
 }
 
 function productCatalogMarkup(products, preview = false) {
@@ -318,7 +331,8 @@ function renderDetail(id, params) {
   if (!business) return `<section class="page-width not-found"><div class="empty-state">${icon("search", 42)}<h1>Negócio não encontrado</h1><p>O endereço pode estar incorreto ou a marca pode ter sido removida deste navegador.</p><a class="button button-dark" href="#/explorar">Explorar negócios</a></div></section>`;
   const otherImages = business.images?.slice(1).filter(safeImageSrc) || [];
   return `<div class="page-width detail-page"><a href="#/explorar" class="back-link">${icon("back", 18)} Voltar para explorar</a>
-    ${params.get("criado") === "1" ? `<div class="success-banner" role="status">${icon("check", 22)}<span><strong>Marca salva com sucesso.</strong> ${business.shared ? "Ela já aparece na vitrine pública e pode ser encontrada pela busca." : "Ela foi salva apenas neste navegador, no modo demonstrativo."}${params.get("aviso") === "1" ? " O navegador não conseguiu guardar a lista ou a chave de exclusão deste anúncio. Guarde o link para encontrá-lo novamente; a exclusão pode não estar disponível neste navegador." : ""}</span></div>` : ""}
+    ${(params.get("criado") === "1" || params.get("editado") === "1") ? `<div class="success-banner" role="status">${icon("check", 22)}<span><strong>${params.get("editado") === "1" ? "Alterações salvas." : "Marca salva com sucesso."}</strong> ${business.shared ? "Ela já aparece na vitrine pública e pode ser encontrada pela busca." : "Ela foi salva apenas neste navegador, no modo demonstrativo."}${params.get("aviso") === "1" ? " O navegador não conseguiu guardar a lista ou a chave de exclusão deste anúncio. Guarde o link para encontrá-lo novamente; a exclusão pode não estar disponível neste navegador." : ""}</span></div>` : ""}
+    ${(params.get("criado") === "1" || params.get("editado") === "1") && canDeleteBusiness(business) ? `<div class="service-notice"><strong>Seu anúncio está em Minhas lojas.</strong><p>${business.shared ? "Guarde o código privado para conseguir editar ou excluir a marca em outro navegador." : "No modo local, a edição e a exclusão ficam disponíveis apenas neste navegador."}</p><div class="profile-actions">${business.shared ? `<button type="button" class="button button-dark" data-save-access="${escapeHTML(business.id)}">Guardar código de acesso</button>` : ""}<a class="button button-light" href="#/perfil">Ir para Minhas lojas</a></div></div>` : ""}
     <h1 class="sr-only">${escapeHTML(business.name)}</h1>
     <div class="detail-grid"><div class="detail-main">
       <div class="detail-photo">${imageMarkup(business)}</div>
@@ -328,8 +342,11 @@ function renderDetail(id, params) {
   </div>`;
 }
 
-function renderPublish() {
-  const heading = `<section class="page-heading page-width"><p class="section-intro">Faça parte da vitrine</p><h1>Divulgar minha marca</h1><p>Publique sem criar conta. Informe quem é responsável pela loja para que cada anúncio tenha seu próprio autor.</p></section>`;
+function renderPublish(editingId = null) {
+  if (editingId && account.loading) return '<section class="page-width page-heading"><h1>Editar minha marca</h1><p role="status">Carregando seu anúncio…</p></section>';
+  const existing = editingId && allBusinesses().find(b => b.id === editingId);
+  if (editingId && (!existing || !canDeleteBusiness(existing))) return '<section class="page-width page-heading"><h1>Acesso à edição indisponível</h1><p>Recupere o anúncio com seu código privado em Minhas lojas. O nome ou o link da marca não dão acesso para editar.</p><a class="button button-dark" href="#/perfil">Ir para Minhas lojas</a></section>';
+  const heading = `<section class="page-heading page-width"><p class="section-intro">${editingId ? 'Sua marca' : 'Faça parte da vitrine'}</p><h1>${editingId ? 'Editar minha marca' : 'Divulgar minha marca'}</h1><p>${editingId ? 'Atualize as informações, os produtos e as fotos. As alterações serão aplicadas ao mesmo anúncio.' : 'Publique sem criar conta. Informe quem é responsável pela loja para que cada anúncio tenha seu próprio autor.'}</p></section>`;
   return `${heading}
     ${!account.shared ? `<div class="page-width service-notice" role="status">${account.loading ? "Conectando à vitrine compartilhada…" : "Modo demonstrativo local: os cadastros ficam apenas neste navegador."}</div>` : ""}
     <section class="page-width publish-layout"><form id="publish-form" class="publish-form" novalidate>
@@ -466,13 +483,29 @@ function showFormErrors(errors) {
   summary.focus();
 }
 
-function setupPublish() {
+function setupPublish(existing = null) {
   if (!document.querySelector("#publish-form")) return;
-  formImages = [];
+  formImages = [...(existing?.images || [])];
   productPhotos = new Map(); pendingUploads = 0;
-  businessLocation = null;
+  businessLocation = existing?.location || null;
   publishDirty = false;
   const form = document.querySelector("#publish-form");
+  if (existing) {
+    for (const key of ['name','category','description','city','neighborhood','tags','student','unit','contact']) {
+      const field = form.elements.namedItem(key); if (field) field.value = existing[key] || '';
+    }
+    const products = productsOf(existing);
+    form.querySelector('#product-rows').innerHTML = (products.length ? products : [{name:'',price:null}]).map(() => productRow()).join('');
+    form.querySelectorAll('.product-row').forEach((row,index) => {
+      const product=products[index]; if (!product) return;
+      row.querySelector('[name="productName"]').value=product.name;
+      row.querySelector('[name="productPrice"]').value=product.price === null ? '' : String(product.price).replace('.',',');
+      productPhotos.set(row.dataset.productId,[...(product.images || [])]);
+    });
+    form.querySelector('[type="submit"]').textContent='Salvar alterações';
+    form.querySelector('.form-actions').insertAdjacentHTML('beforeend','<a class="text-link" href="#/perfil">Cancelar edição</a>');
+    if (businessLocation) { document.querySelector('#business-location-state').textContent='A região aproximada do anúncio foi mantida. Você pode removê-la ou atualizá-la.'; document.querySelector('#remove-business-location').hidden=false; }
+  }
   const handleEdit = (event) => {
     publishDirty = true;
     updatePreview();
@@ -546,14 +579,14 @@ function setupPublish() {
     if (Object.keys(errors).length) { showFormErrors(errors); return; }
     const button = form.querySelector('[type="submit"]');
     if (button.disabled) return;
-    button.disabled = true; button.textContent = "Publicando sua marca…";
+    button.disabled = true; button.textContent = existing ? 'Salvando alterações…' : "Publicando sua marca…";
     try {
-      const business = await publishBusiness(values, formImages);
+      const business = await publishBusiness(values, formImages, existing?.id);
       publishDirty = false;
-      location.hash = `${businessUrl(business.id)}?criado=1${business.localTrackingFailed ? "&aviso=1" : ""}`;
+      location.hash = `${businessUrl(business.id)}?${existing ? 'editado' : 'criado'}=1${business.localTrackingFailed ? "&aviso=1" : ""}`;
     } catch (error) {
       if (form.isConnected) showFormErrors(error.errors || { form: error.message });
-    } finally { if (button.isConnected) { button.disabled = false; button.textContent = "Publicar minha marca"; } }
+    } finally { if (button.isConnected) { button.disabled = false; button.textContent = existing ? 'Salvar alterações' : "Publicar minha marca"; } }
   });
   updatePreview();
 }
@@ -611,7 +644,7 @@ function requestLocation(kind, button) {
 }
 
 function renderPrivacy() {
-  return `<section class="page-heading page-width"><p class="section-intro">Transparência</p><h1>Privacidade e uso dos dados</h1></section><article class="page-width privacy-copy"><h2>Publicação sem conta</h2><p>Não é necessário fazer login ou criar conta. O site não recebe e-mail de acesso, senha ou dados de uma conta Google. O nome do responsável é informado no cadastro de cada loja e não representa identidade verificada.</p><h2>O que fica público</h2><p>Nome do responsável, unidade ETEC, contato escolhido, fotos, descrições, produtos, preços, cidade e bairro ficam disponíveis aos visitantes. O contato pode ser um perfil profissional; não é obrigatório informar e-mail pessoal. Não publique endereço residencial completo. A localização opcional do negócio é arredondada para uma região de cerca de 1 km.</p><h2>Meus anúncios</h2><p>O navegador guarda os identificadores dos anúncios e uma chave de exclusão individual para cada anúncio novo. A lista não é uma conta nem é recuperada automaticamente em outro aparelho. Em Meus anúncios, você pode confirmar a exclusão dos anúncios cuja chave está neste navegador. A chave não aparece na vitrine pública. Apagar os dados do navegador remove a lista e as chaves, mas não remove os anúncios públicos. Anúncios antigos, criados sem chave, não podem ser excluídos por este recurso. Não é permitido editar ou excluir anúncios de outras pessoas.</p><h2>Local e preferências</h2><p>Sua localização só é acessada após clique e permissão. Ela é arredondada e fica neste navegador com gostos, categorias, orçamento e favoritos; não é enviada ao banco do projeto. Você pode removê-la em Local e preferências. Distâncias são aproximações em linha reta.</p><h2>Hospedagem e limites</h2><p>A hospedagem e o banco público usam o plano gratuito do Cloudflare. Para reduzir abuso, há um limite de 30 publicações diárias por acesso de rede. É usado um resumo criptográfico diário do endereço de rede, sem guardar o IP original no banco do projeto. A hospedagem pode processar dados técnicos da conexão conforme suas próprias políticas.</p><h2>Comunidade e exemplos</h2><p>A plataforma é destinada à comunidade ETEC. Nome e unidade declarados não verificam vínculo estudantil. Exemplos demonstrativos, preços e regiões são fictícios. Os únicos contatos exibidos nos anúncios são os que seus responsáveis informarem para suas lojas.</p><a class="button button-dark" href="#/preferencias">Gerenciar minhas preferências</a></article>`;
+  return `<section class="page-heading page-width"><p class="section-intro">Transparência</p><h1>Privacidade e uso dos dados</h1></section><article class="page-width privacy-copy"><h2>Publicação sem conta</h2><p>Não é necessário fazer login ou criar conta. O site não recebe e-mail de acesso, senha ou dados de uma conta Google. O nome do responsável é informado no cadastro de cada loja e não representa identidade verificada.</p><h2>O que fica público</h2><p>Nome do responsável, unidade ETEC, contato escolhido, fotos, descrições, produtos, preços, cidade e bairro ficam disponíveis aos visitantes. O contato pode ser um perfil profissional; não é obrigatório informar e-mail pessoal. Não publique endereço residencial completo. A localização opcional do negócio é arredondada para uma região de cerca de 1 km.</p><h2>Meus anúncios</h2><p>O navegador guarda uma chave privada individual por anúncio, com cópia em dois armazenamentos locais quando disponíveis. A chave é salva antes da publicação e permite editar e excluir o anúncio. A lista não é uma conta. Você pode guardar um código privado e usá-lo para recuperar o acesso em outro navegador ou aparelho. Quem tiver esse código poderá editar e excluir o anúncio; não o compartilhe. A chave nunca é exibida na vitrine pública, e o servidor guarda apenas seu resumo criptográfico. Apagar os dados do navegador pode remover o acesso, mas não apaga o anúncio público. Sem chave ou código guardado, não é possível recuperar anúncios apenas pelo nome.</p><h2>Local e preferências</h2><p>Sua localização só é acessada após clique e permissão. Ela é arredondada e fica neste navegador com gostos, categorias, orçamento e favoritos; não é enviada ao banco do projeto. Você pode removê-la em Local e preferências. Distâncias são aproximações em linha reta.</p><h2>Hospedagem e limites</h2><p>A hospedagem e o banco público usam o plano gratuito do Cloudflare. Para reduzir abuso, há um limite de 30 publicações diárias por acesso de rede. É usado um resumo criptográfico diário do endereço de rede, sem guardar o IP original no banco do projeto. A hospedagem pode processar dados técnicos da conexão conforme suas próprias políticas.</p><h2>Comunidade e exemplos</h2><p>A plataforma é destinada à comunidade ETEC. Nome e unidade declarados não verificam vínculo estudantil. Exemplos demonstrativos, preços e regiões são fictícios. Os únicos contatos exibidos nos anúncios são os que seus responsáveis informarem para suas lojas.</p><a class="button button-dark" href="#/preferencias">Gerenciar minhas preferências</a></article>`;
 }
 
 function render({ focusMain = false, scrollTop = true } = {}) {
@@ -622,6 +655,7 @@ function render({ focusMain = false, scrollTop = true } = {}) {
   else if (path === "/favoritos") { content = renderFavorites(); active = "favoritos"; }
   else if (path === "/perfil") { content = renderProfile(); active = "perfil"; }
   else if (path === "/divulgar") { content = renderPublish(); active = ""; }
+  else if (path.startsWith('/editar/')) { content = renderPublish(path.slice(8)); active='perfil'; }
   else if (path === "/preferencias") { content = renderPreferences(true); active = ""; }
   else if (path === "/privacidade") { content = renderPrivacy(); active = ""; }
   else if (path.startsWith("/negocio/")) { let id = ""; try { id = decodeURIComponent(path.slice(9)); } catch {} content = renderDetail(id, params); active = "explorar"; }
@@ -631,6 +665,15 @@ function render({ focusMain = false, scrollTop = true } = {}) {
   document.title = path === "/inicio" || path === "/" ? "Raízes Empreendedoras — Entre Marcas" : `${titles[path] || "Negócio"} — Raízes Empreendedoras`;
   if (path === "/explorar") setupExplore();
   if (path === "/divulgar") setupPublish();
+  if (path.startsWith('/editar/')) { document.title='Editar minha marca — Raízes Empreendedoras'; setupPublish(allBusinesses().find(b=>b.id===path.slice(8))); }
+  document.querySelector('#refresh-owned')?.addEventListener('click',async event=>{event.currentTarget.disabled=true; event.currentTarget.textContent='Atualizando…'; await loadAccount(); render({scrollTop:false}); if (!account.error) showToast('Seus anúncios foram atualizados.');});
+  document.querySelector('#restore-access-form')?.addEventListener('submit',async event=>{
+    event.preventDefault(); const form=event.currentTarget,button=form.querySelector('[type="submit"]'),error=form.querySelector('#restore-error');
+    if (button.disabled) return; button.disabled=true;button.textContent='Recuperando…';error.textContent='';
+    try { await restoreAccess(form.elements.accessCode.value); render({scrollTop:false,focusMain:true}); showToast('Acesso ao anúncio recuperado neste navegador.'); }
+    catch (failure) {error.textContent=failure.message;}
+    finally {if(button.isConnected){button.disabled=false;button.textContent='Recuperar meu anúncio';}}
+  });
   setupPreferences();
   document.querySelector("#retry-account")?.addEventListener("click", async event => { event.target.disabled = true; await loadAccount(); render({ scrollTop: false }); });
   document.querySelector("#remove-business-location")?.addEventListener("click", () => { businessLocation = null; publishDirty = true; document.querySelector("#business-location-state").textContent = "Localização removida. Somente cidade e bairro serão exibidos."; document.querySelector("#remove-business-location").hidden = true; });
@@ -648,6 +691,8 @@ function render({ focusMain = false, scrollTop = true } = {}) {
 }
 
 document.addEventListener("click", (event) => {
+  const accessButton=event.target.closest('[data-save-access]');
+  if(accessButton){const business=allBusinesses().find(b=>b.id===accessButton.dataset.saveAccess);if(business)showAccessCode(business,accessButton);return;}
   const deletion = event.target.closest("[data-delete-business]");
   if (deletion) { const business = allBusinesses().find(b => b.id === deletion.dataset.deleteBusiness); if (business && canDeleteBusiness(business)) confirmDeleteBusiness(business, deletion); return; }
   const geolocate = event.target.closest("[data-geolocate]");
@@ -681,7 +726,7 @@ document.addEventListener("error", (event) => {
 }, true);
 
 window.addEventListener("hashchange", () => {
-  if (publishDirty && previousHash.startsWith("#/divulgar") && location.hash !== previousHash) {
+  if (publishDirty && (previousHash.startsWith("#/divulgar") || previousHash.startsWith("#/editar/")) && location.hash !== previousHash) {
     if (!window.confirm("Você ainda não salvou sua marca. Sair desta página e perder as alterações?")) {
       history.replaceState(null, "", previousHash);
       return;

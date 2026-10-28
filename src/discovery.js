@@ -1,4 +1,4 @@
-import { CATEGORIES, normalizeText } from "./catalog.js?v=20261024-2";
+import { CATEGORIES, normalizeText } from "./catalog.js?v=20261028-1";
 
 export const PREFERENCES_KEY = "raizes:preferences:v1";
 export const DEFAULT_PREFERENCES = { city: "São Paulo", neighborhood: "", categories: [], tastes: "", minPrice: "", maxPrice: "", location: null };

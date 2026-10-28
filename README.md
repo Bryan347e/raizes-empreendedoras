@@ -17,7 +17,7 @@ Para abrir a demonstração no computador, execute `iniciar-site.cmd` ou `node s
 - O nome do responsável aparece no cartão e nos detalhes. A busca também encontra responsáveis.
 - **Meus anúncios** usa IDs e chaves de exclusão individuais guardados neste navegador e agrupa as lojas pelo nome e unidade informados. Outros navegadores não recebem essa lista automaticamente; apagar o armazenamento local remove a lembrança, sem excluir o anúncio público.
 - Essa organização não autentica pessoas. Homônimos na mesma unidade podem aparecer no mesmo grupo visual quando publicados no mesmo navegador. Cada anúncio continua sendo um registro separado.
-- A API oferece criação e leitura pública, sem edição ou exclusão de lojas de outras pessoas. Campos de propriedade/identidade enviados por clientes são ignorados. Não são criadas contas ou sessões no banco.
+- A API oferece criação e leitura pública; edição e exclusão exigem a chave privada do anúncio e não permitem alterar lojas de outras pessoas. Campos de propriedade/identidade enviados por clientes são ignorados. Não são criadas contas ou sessões no banco.
 - Há validação de campos, preços, até 12 produtos, até três fotos da marca e três fotos por produto, e limite de 30 publicações diárias por acesso de rede. O limite usa hash diário do IP, sem armazenar o endereço original na tabela do projeto.
 - Anúncios de versões anteriores permanecem disponíveis. As tabelas antigas foram mantidas para não apagar trabalho existente, mas o código Google e seus endpoints foram removidos.
 
@@ -58,4 +58,12 @@ As fotos dos exemplos foram geradas para a demonstração. A marca do cabeçalho
 Cada produto tem até três fotos independentes das três fotos da marca. A primeira foto da marca é a capa; os detalhes mostram o catálogo de produtos com fotos e preços. As imagens são reduzidas antes do envio.
 
 Cada anúncio novo recebe uma chave aleatória de 256 bits no navegador. O servidor guarda somente o hash SHA-256, separado do conteúdo público. DELETE exige essa chave e confirmação na interface; não há exclusão por nome, ID público ou seleção de responsável. Os anúncios antigos sem chave permanecem visíveis e não recebem permissão de exclusão retroativa. Anúncios locais podem ser removidos no navegador que os armazena.
+
+## Edição e recuperação de acesso (28/10/2026)
+
+Em Meus anúncios, quem possui a chave pode editar os dados, produtos e fotos, excluir o anúncio e guardar um código privado de recuperação. A edição mantém o ID e a data de criação. Imagens já salvas só podem ser reutilizadas dentro do próprio anúncio.
+
+O acesso é salvo antes de enviar a publicação, com cópia em localStorage e IndexedDB quando disponíveis. Os IDs também são derivados das chaves, evitando perder a lista quando a gravação do índice falha. O cliente pré-reserva um UUID e o servidor trata reenvios com a mesma chave sem duplicar o anúncio. No domínio principal, uma falha de conexão não vira publicação local silenciosa.
+
+O código privado pode ser usado em outro navegador. Quem tem o código pode editar e excluir; ele não deve ser compartilhado nem colocado em URLs. A API confere o hash da chave antes de recuperar ou alterar um registro. Sem chave ou código, não existe recuperação automática por nome, e-mail ou unidade. Não há conta nem verificação de identidade.
 

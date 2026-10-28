@@ -123,3 +123,37 @@ test('sem banco o serviço identifica a demonstração e mantém os arquivos est
   assert.equal(await (await worker.fetch(new Request(origin+'/'),env)).text(),'ok');
 });
 
+test('edição e recuperação exigem a chave correta e preservam fotos e o ID do anúncio',async()=>{
+  const {call}=setup(),token='c'.repeat(64),headers={'x-raizes-management':token};
+  const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII=';
+  const saved=(await (await call('businesses','POST',{business:{...business,products:[{name:'Brownie',price:8,images:[png,png]}]},images:[png],managementToken:token})).json()).business;
+  const other=(await (await call('businesses','POST',{business,images:[png],managementToken:'d'.repeat(64)})).json()).business;
+  assert.equal((await call(`businesses/${saved.id}`,'PUT',{business})).status,403);
+  assert.equal((await call(`businesses/${saved.id}/access`,'POST',undefined,{'x-raizes-management':'e'.repeat(64)})).status,403);
+  const recovered=await (await call(`businesses/${saved.id}/access`,'POST',undefined,headers)).json();
+  assert.equal(recovered.business.id,saved.id); assert.ok(!JSON.stringify(recovered).includes(token));
+  assert.equal((await call(`businesses/${saved.id}`,'PUT',{business:{...business,name:'Inválido'},images:other.images},headers)).status,400);
+  assert.equal((await call(`businesses/${saved.id}`,'PUT',{business:{...business,products:[{name:'Produto',price:-1}]}},headers)).status,400);
+  const response=await call(`businesses/${saved.id}`,'PUT',{business:{...business,name:'Brownies atualizados',products:[{name:'Brownie novo',price:12,images:saved.products[0].images.slice(0,1)}]},images:saved.images},headers);
+  assert.equal(response.status,200);
+  const changed=(await response.json()).business;
+  assert.equal(changed.id,saved.id);assert.equal(changed.createdAt,saved.createdAt); assert.equal(changed.name,'Brownies atualizados');
+  assert.equal(changed.products[0].price,12); assert.equal(changed.images.length,1); assert.equal(changed.products[0].images.length,1);
+  assert.equal((await call(changed.products[0].images[0].slice(4))).status,200);
+  assert.equal((await call(saved.products[0].images[1].slice(4))).status,404);
+  const list=(await (await call('businesses')).json()).businesses;
+  assert.equal(list.length,2); assert.equal(list.find(b=>b.id===other.id).name,business.name);
+  assert.equal((await call(`businesses/${saved.id}`,'DELETE',undefined,headers)).status,200);
+});
+
+test('reenvio após perda da resposta não duplica o anúncio e não permite tomar ID de outra loja',async()=>{
+  const {call}=setup(),id=crypto.randomUUID(),token='f'.repeat(64);
+  const body={business,businessId:id,managementToken:token};
+  assert.equal((await call('businesses','POST',body)).status,201);
+  const retry=await call('businesses','POST',{...body,business:{...business,name:'Não sobrescrever em repetição'}});
+  assert.equal(retry.status,200); assert.equal((await retry.json()).business.name,business.name);
+  assert.equal((await (await call('businesses')).json()).businesses.length,1);
+  assert.equal((await call('businesses','POST',{...body,managementToken:'a'.repeat(64)})).status,409);
+  assert.equal((await call('businesses','POST',{...body,businessId:'inválido'})).status,400);
+});
+

@@ -136,12 +136,14 @@ export function validateBusiness(values) {
   return errors;
 }
 
-export function saveBusiness(values, images = [], storage = browserStorage()) {
+export function saveBusiness(values, images = [], storage = browserStorage(), existingId = null) {
   const errors = validateBusiness(values);
   if (Object.keys(errors).length) return { ok: false, errors };
   const created = getCreatedBusinesses(storage);
+  const existing = existingId ? created.find(b => b.id === existingId) : null;
+  if (existingId && !existing) return { ok:false, errors:{form:'Anúncio local não encontrado.'} };
   const business = {
-    id: `marca-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`,
+    id: existing?.id || `marca-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`,
     name: values.name.trim(),
     category: values.category,
     description: values.description.trim(),
@@ -158,10 +160,11 @@ export function saveBusiness(values, images = [], storage = browserStorage()) {
     images,
     demo: false,
     featured: false,
-    createdAt: new Date().toISOString()
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
   try {
-    storage.setItem(BUSINESS_KEY, JSON.stringify([business, ...created]));
+    storage.setItem(BUSINESS_KEY, JSON.stringify([business, ...created.filter(b => b.id !== business.id)]));
     return { ok: true, business };
   } catch {
     return { ok: false, errors: { form: "Não foi possível salvar neste navegador. Tente imagens menores ou libere espaço de armazenamento." } };

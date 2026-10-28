@@ -77,13 +77,26 @@ export function createWorker({ clock = () => Date.now() } = {}) {
       if (!route.startsWith("/api/")) return env.ASSETS.fetch(request);
       try {
         const deletion = /^\/api\/businesses\/([a-f0-9-]{36})$/.exec(route);
-        if (!["GET", "POST"].includes(request.method) && !(deletion && request.method === 'DELETE')) return json({ error: "Método não permitido." }, 405);
+        const access = /^\/api\/businesses\/([a-f0-9-]{36})\/access$/.exec(route);
+        const editing = deletion && request.method === 'PUT';
+        if (!["GET", "POST"].includes(request.method) && !(deletion && ['DELETE','PUT'].includes(request.method))) return json({ error: "Método não permitido." }, 405);
         if (request.method !== "GET" && (request.headers.get("origin") !== url.origin || request.headers.get("x-raizes-request") !== "1")) return json({ error: "A solicitação deve partir do próprio site." }, 403);
         if (route === "/api/session" && !env.DB) return json({ shared: false });
         if (!env.DB) return json({ error: "O armazenamento compartilhado ainda está em configuração.", code: "NOT_CONFIGURED" }, 503);
         await ensureDatabase(env.DB);
 
         if (route === "/api/session" && request.method === "GET") return json({ shared: true });
+        if ((access && request.method === 'POST') || editing) {
+          const id = access ? access[1] : deletion[1], token = request.headers.get('x-raizes-management') || '';
+          if (!/^[a-f0-9]{64}$/.test(token)) return json({error:'Informe o código privado do anúncio para recuperar ou editar o acesso.'},403);
+          const permitted = await env.DB.prepare('SELECT business_id FROM business_management WHERE business_id = ? AND token_hash = ?').bind(id,await hash(token)).first();
+          if (!permitted) return json({error:'Código inválido, anúncio excluído ou acesso indisponível. Confira o código privado completo.'},403);
+          if (access) {
+            const row = await env.DB.prepare('SELECT id, data, created_at FROM public_businesses WHERE id = ?').bind(id).first();
+            if (!row) return json({error:'Anúncio não encontrado.'},404);
+            return json({business:(await withImages([row],env.DB))[0]});
+          }
+        }
         if (deletion && request.method === 'DELETE') {
           const token = request.headers.get('x-raizes-management') || '';
           if (!/^[a-f0-9]{64}$/.test(token)) return json({ error: 'A chave de exclusão não está disponível neste navegador.' }, 403);
@@ -109,20 +122,44 @@ export function createWorker({ clock = () => Date.now() } = {}) {
           return json({ businesses: await withImages(result.results, env.DB), limit: 300 });
         }
 
-        if (route === "/api/businesses" && request.method === "POST") {
+        if ((route === "/api/businesses" && request.method === "POST") || editing) {
           const body = await readBody(request), values = body?.business;
+          if (!body || typeof body !== 'object' || Array.isArray(body)) return json({error:'Revise as informações do anúncio.'},400);
+          const editingRow = editing ? await env.DB.prepare('SELECT id, data, created_at FROM public_businesses WHERE id = ?').bind(deletion[1]).first() : null;
+          if (editing && !editingRow) return json({error:'Anúncio não encontrado.'},404);
+          if (!editing && body.businessId !== undefined) {
+            if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(body.businessId) || !/^[a-f0-9]{64}$/.test(body.managementToken || '')) return json({error:'O comprovante de publicação é inválido.'},400);
+            const existing = await env.DB.prepare('SELECT id, data, created_at FROM public_businesses WHERE id = ?').bind(body.businessId).first();
+            if (existing) {
+              const permitted = await env.DB.prepare('SELECT business_id FROM business_management WHERE business_id = ? AND token_hash = ?').bind(body.businessId,await hash(body.managementToken)).first();
+              if (!permitted) return json({error:'Este identificador já pertence a outro anúncio.'},409);
+              return json({business:(await withImages([existing],env.DB))[0]},200);
+            }
+          }
           if (!values || typeof values !== "object" || ["name", "category", "description", "student", "unit", "contact", "city", "neighborhood"].some(key => typeof values[key] !== "string")) return json({ error: "Revise as informações do negócio." }, 400);
           values.offerings = Array.isArray(values.products) ? values.products.map(p => p?.name || "").join("\n") : "";
           const errors = validateBusiness(values);
           if (values.name.length > 80 || values.description.length > 600 || values.student.length > 90 || values.contact.length > 140 || String(values.tags || "").length > 160) errors.form = "Algum campo ultrapassou o tamanho permitido.";
           if (values.location !== null && values.location !== undefined && !validLocation(values.location)) errors.location = "A localização é inválida. Informe novamente a região de atendimento.";
-          const images = validateImages(body.images || []);
+          const storedPhotos = editing ? (await env.DB.prepare('SELECT id, mime, data FROM public_business_images WHERE business_id = ? UNION ALL SELECT id, mime, data FROM product_images WHERE business_id = ?').bind(deletion[1],deletion[1]).all()).results : [];
+          const parsePhotos = sources => {
+            if (!Array.isArray(sources) || sources.length > 3) return null;
+            const result = [];
+            for (const source of sources) {
+              const reference = typeof source === 'string' && /^api\/imagens\/([a-f0-9-]{36})$/.exec(source);
+              const saved = reference && storedPhotos.find(photo => photo.id === reference[1]);
+              if (saved) result.push({mime:saved.mime,data:saved.data});
+              else { const photos = validateImages([source]); if (!photos) return null; result.push(photos[0]); }
+            }
+            return result;
+          };
+          const images = parsePhotos(body.images || []);
           if (!images) errors.images = "Use até 3 fotos JPG, PNG ou WebP menores que 375 KB cada.";
-          const productImages = Array.isArray(values.products) ? values.products.map(p => validateImages(p?.images ?? [])) : [];
+          const productImages = Array.isArray(values.products) ? values.products.map(p => parsePhotos(p?.images ?? [])) : [];
           if (productImages.some(images => !images)) errors.products = 'Cada produto pode ter até 3 fotos JPG, PNG ou WebP menores que 375 KB cada.';
           if (body.managementToken !== undefined && !/^[a-f0-9]{64}$/.test(body.managementToken)) errors.form = 'A chave de exclusão é inválida. Atualize a página e tente novamente.';
           if (Object.keys(errors).length) return json({ error: "Revise os campos indicados.", errors }, 400);
-          // Public create-only submission: a declared name grants no identity or permissions.
+          // A declared name grants no identity or permissions; mutations require the private key.
           // A daily network hash limits abuse; no account, login email or session is created.
           const ip = request.headers.get("cf-connecting-ip");
           if (ip) {
@@ -130,10 +167,15 @@ export function createWorker({ clock = () => Date.now() } = {}) {
             const allowed = await env.DB.prepare("INSERT INTO publication_limits (bucket, total, expires_at) VALUES (?, 1, ?) ON CONFLICT(bucket) DO UPDATE SET total = total + 1 WHERE total < 30 RETURNING total").bind(bucket, now() + 86400).first();
             if (!allowed) return json({ error: "Este acesso atingiu o limite diário de publicações. Tente novamente amanhã." }, 429);
           }
-          const id = crypto.randomUUID();
+          const id = editing ? deletion[1] : body.businessId || crypto.randomUUID();
           const business = { id, name: values.name.trim(), category: values.category, description: values.description.trim(), shortDescription: values.description.trim().slice(0, 110), student: values.student.trim(), unit: values.unit, contact: values.contact.trim(), city: values.city.trim(), neighborhood: values.neighborhood.trim(), tags: String(values.tags || "").trim(), location: approximateLocation(values.location), products: values.products.map(p => ({ name: p.name.trim(), price: p.price })), offerings: values.products.map(p => p.name.trim()), demo: false, shared: true, featured: false, createdAt: new Date(clock()).toISOString() };
-          const statements = [env.DB.prepare("INSERT INTO public_businesses (id, data, created_at) VALUES (?, ?, ?)").bind(id, JSON.stringify(business), now())];
-          if (body.managementToken) statements.push(env.DB.prepare('INSERT INTO business_management (business_id, token_hash) VALUES (?, ?)').bind(id, await hash(body.managementToken)));
+          if (editingRow) { business.createdAt=JSON.parse(editingRow.data).createdAt; business.updatedAt=new Date(clock()).toISOString(); }
+          const statements = editing ? [
+            env.DB.prepare('UPDATE public_businesses SET data = ? WHERE id = ?').bind(JSON.stringify(business),id),
+            env.DB.prepare('DELETE FROM public_business_images WHERE business_id = ?').bind(id),
+            env.DB.prepare('DELETE FROM product_images WHERE business_id = ?').bind(id)
+          ] : [env.DB.prepare("INSERT INTO public_businesses (id, data, created_at) VALUES (?, ?, ?)").bind(id, JSON.stringify(business), now())];
+          if (!editing && body.managementToken) statements.push(env.DB.prepare('INSERT INTO business_management (business_id, token_hash) VALUES (?, ?)').bind(id, await hash(body.managementToken)));
           const imageIds = images.map(() => crypto.randomUUID());
           images.forEach((image, i) => statements.push(env.DB.prepare("INSERT INTO public_business_images (id, business_id, position, mime, data) VALUES (?, ?, ?, ?, ?)").bind(imageIds[i], id, i, image.mime, image.data)));
           const productImageIds = productImages.map((photos, productIndex) => photos.map((image, position) => {
@@ -143,7 +185,7 @@ export function createWorker({ clock = () => Date.now() } = {}) {
           }));
           statements.push(env.DB.prepare("DELETE FROM publication_limits WHERE expires_at < ?").bind(now()));
           await env.DB.batch(statements);
-          return json({ business: { ...business, images: imageIds.map(image => `api/imagens/${image}`), products: business.products.map((product, index) => ({ ...product, images: productImageIds[index] })) } }, 201);
+          return json({ business: { ...business, images: imageIds.map(image => `api/imagens/${image}`), products: business.products.map((product, index) => ({ ...product, images: productImageIds[index] })) } }, editing ? 200 : 201);
         }
 
         const imageMatch = /^\/api\/imagens\/([a-f0-9-]{36})$/.exec(route);
