@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const destination = path.join(root, "publicacao-github-pages");
-const siteFiles = ["index.html", "styles.css", "src/app.js", "src/catalog.js", "src/discovery.js", "src/api.js", "src/image-upload.js", "src/presentation-businesses.js", ".nojekyll"];
+const siteFiles = ["index.html", "styles.css", "src/app.js", "src/catalog.js", "src/discovery.js", "src/api.js", "src/image-upload.js", "src/presentation-businesses.js", "src/presentation-photos.js", ".nojekyll"];
 const assets = await readdir(path.join(root, "assets"), { withFileTypes: true });
 for (const asset of assets) {
   if (asset.isFile() && /^[a-z0-9-]+\.(png|jpe?g|webp|svg)$/i.test(asset.name)) {

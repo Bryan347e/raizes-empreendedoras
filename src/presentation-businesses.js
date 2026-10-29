@@ -1,5 +1,6 @@
 // Fictional catalogue for the school presentation. No inboxes or accounts exist.
 // Kept outside the public database so real community listings stay untouched.
+import { PRESENTATION_PHOTOS } from './presentation-photos.js?v=20261029-2';
 const examples = [
   {
     slug: 'doce-intervalo', name: 'Doce Intervalo', category: 'Alimentação',
@@ -133,9 +134,9 @@ export const PRESENTATION_BUSINESSES = examples.map(({ slug, image, ...business 
   ...business,
   id: `apresentacao-${slug}`,
   city: 'São Paulo',
-  images: [`assets/${image}.png`],
-  imageAlt: `Imagem ilustrativa de ${business.name}, marca fictícia para apresentação`,
-  products: business.products.map(product => ({ ...product, images: [`assets/${image}.png`] })),
+  images: [PRESENTATION_PHOTOS[slug][0].src],
+  imageAlt: `${PRESENTATION_PHOTOS[slug][0].alt}. Fotografia ilustrativa de uma marca fictícia.`,
+  products: business.products.map((product, index) => ({ ...product, images: [PRESENTATION_PHOTOS[slug][index + 1].src] })),
   offerings: business.products.map(product => product.name),
   demo: true,
   featured: business.featured === true

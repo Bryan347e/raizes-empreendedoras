@@ -2,11 +2,11 @@ import {
   CATEGORIES, UNITS, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
   filterBusinesses, validateBusiness, groupBusinessesByResponsible, imageCandidates
-} from "./catalog.js?v=20261029-1";
-import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness, recoveryCode, restoreAccess } from "./api.js?v=20261029-1";
-import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261029-1";
-import { prepareImageSelection } from './image-upload.js?v=20261029-1';
-import { PRESENTATION_BUSINESSES } from './presentation-businesses.js?v=20261029-1';
+} from "./catalog.js?v=20261029-2";
+import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness, recoveryCode, restoreAccess } from "./api.js?v=20261029-2";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261029-2";
+import { prepareImageSelection } from './image-upload.js?v=20261029-2';
+import { PRESENTATION_BUSINESSES } from './presentation-businesses.js?v=20261029-2';
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
