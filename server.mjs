@@ -32,7 +32,7 @@ async function serve(request, response) {
     }
     const requested = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
     const allowed = requested === "/index.html" || requested === "/styles.css" ||
-      ["/src/app.js", "/src/catalog.js", "/src/discovery.js", "/src/api.js", "/src/image-upload.js"].includes(requested) ||
+      ["/src/app.js", "/src/catalog.js", "/src/discovery.js", "/src/api.js", "/src/image-upload.js", "/src/presentation-businesses.js"].includes(requested) ||
       /^\/assets\/[a-z0-9-]+\.(png|jpe?g|webp|svg)$/i.test(requested);
     if (!allowed) throw new Error("Arquivo não publicado");
     const file = path.resolve(root, `.${requested}`);

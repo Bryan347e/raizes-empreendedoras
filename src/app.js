@@ -2,10 +2,11 @@ import {
   CATEGORIES, UNITS, getAllBusinesses,
   getCreatedBusinesses, getFavorites, toggleFavorite,
   filterBusinesses, validateBusiness, groupBusinessesByResponsible, imageCandidates
-} from "./catalog.js?v=20261028-3";
-import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness, recoveryCode, restoreAccess } from "./api.js?v=20261028-3";
-import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261028-3";
-import { prepareImageSelection } from './image-upload.js?v=20261028-3';
+} from "./catalog.js?v=20261029-1";
+import { account, loadAccount, publishBusiness, ownedBusinessIds, canDeleteBusiness, deleteBusiness, recoveryCode, restoreAccess } from "./api.js?v=20261029-1";
+import { DEFAULT_PREFERENCES, PREFERENCES_KEY, getPreferences, savePreferences, approximateLocation, distanceKm, money, parsePrice, productsOf, rankBusinesses, recommendProducts } from "./discovery.js?v=20261029-1";
+import { prepareImageSelection } from './image-upload.js?v=20261029-1';
+import { PRESENTATION_BUSINESSES } from './presentation-businesses.js?v=20261029-1';
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -21,7 +22,8 @@ let productRowId = 0;
 let productPhotos = new Map();
 
 function allBusinesses() {
-  const byId = new Map(getAllBusinesses().map(b => [b.id, b]));
+  const byId = new Map(PRESENTATION_BUSINESSES.map(b => [b.id, b]));
+  getAllBusinesses().forEach(b => byId.set(b.id, b));
   account.businesses.forEach(b => byId.set(b.id, b));
   return [...byId.values()];
 }
@@ -248,7 +250,7 @@ function renderExplore(params) {
         <div class="filter-category-heading"><span>Categoria</span><button id="clear-filters" type="button" class="clear-button">Limpar filtros</button></div>
         <div class="filter-chips" role="group" aria-label="Filtrar por categoria"><button type="button" data-category="" class="filter-chip ${!filters.category ? "is-active" : ""}" aria-pressed="${!filters.category}">Todas</button>${CATEGORIES.map((category) => `<button type="button" data-category="${escapeHTML(category)}" class="filter-chip ${filters.category === category ? "is-active" : ""}" aria-pressed="${filters.category === category}">${escapeHTML(category)}</button>`).join("")}</div>
       </div>
-      <div class="explore-content"><div class="results-heading"><div><h2>Negócios da comunidade</h2><p id="results-count" aria-live="polite"></p></div><span class="demo-pill">Anúncios da comunidade</span></div><div id="results-grid" class="business-grid"></div></div>
+      <div class="explore-content"><div class="results-heading"><div><h2>Negócios da comunidade</h2><p id="results-count" aria-live="polite"></p></div><span class="demo-pill">Comunidade e exemplos</span></div><p class="demo-context">A vitrine inclui marcas fictícias para a apresentação, identificadas como “Exemplo demonstrativo”.</p><div id="results-grid" class="business-grid"></div></div>
     </section>`;
 }
 
@@ -342,7 +344,7 @@ function renderDetail(id, params) {
       <div class="detail-photo">${imageMarkup(business)}</div>
       ${otherImages.length ? `<div class="detail-gallery">${otherImages.map((source, index) => `<span class="photo-frame"><img src="${escapeHTML(source)}" alt="Outra imagem de ${escapeHTML(business.name)}, foto ${index + 2}" width="360" height="260" loading="lazy" data-business-image><span class="photo-fallback">Imagem indisponível</span></span>`).join("")}</div>` : ""}
       <section class="store-catalog" aria-label="Produtos e serviços"><h2>Produtos e serviços</h2>${productCatalogMarkup(productsOf(business))}</section><div class="detail-description"><h2>Sobre o negócio</h2><p>${escapeHTML(business.description)}</p><h2>Região de atendimento</h2><p>${escapeHTML([business.neighborhood, business.city].filter(Boolean).join(", ") || "Não informada")}${distanceMarkup(business)}</p><p class="field-hint">${business.demo ? "Os preços e a localização deste negócio são fictícios para demonstrar as recomendações." : "A localização, quando informada, representa uma região aproximada. A distância é em linha reta e não representa um trajeto."}</p></div>
-    </div><aside class="detail-sidebar"><div class="detail-heading"><span class="category-label">${escapeHTML(business.category)}</span>${favoriteButton(business)}<p class="detail-title">${escapeHTML(business.name)}</p><p>${escapeHTML(business.shortDescription || business.description)}</p></div><div class="detail-facts"><div>${icon("user", 20)}<span><small>Aluno responsável</small><strong>${escapeHTML(business.student)}</strong></span></div><div>${icon("pin", 20)}<span><small>Unidade ETEC</small><strong>${escapeHTML(business.unit)}</strong></span></div></div><div class="contact-box"><h2>Entre em contato</h2>${contactMarkup(business)}${business.demo ? '<small>Este é um exemplo demonstrativo. O contato não direciona a uma pessoa real.</small>' : '<small>Contato público informado pelo responsável pela marca.</small>'}</div><span class="detail-demo">${business.demo ? "Exemplo demonstrativo" : business.shared ? "Anúncio da comunidade" : "Cadastro antigo deste navegador"}</span></aside></div>
+    </div><aside class="detail-sidebar"><div class="detail-heading"><span class="category-label">${escapeHTML(business.category)}</span>${favoriteButton(business)}<p class="detail-title">${escapeHTML(business.name)}</p><p>${escapeHTML(business.shortDescription || business.description)}</p></div><div class="detail-facts"><div>${icon("user", 20)}<span><small>Aluno responsável</small><strong>${escapeHTML(business.student)}</strong></span></div><div>${icon("pin", 20)}<span><small>Unidade ETEC</small><strong>${escapeHTML(business.unit)}</strong></span></div></div><div class="contact-box"><h2>Entre em contato</h2>${contactMarkup(business)}${business.demo ? '<small>Marca, responsável, preços e contato fictícios para apresentação. Contato fictício para demonstração, sem canal ativo de mensagens ou ligações. Imagens ilustrativas.</small>' : '<small>Contato público informado pelo responsável pela marca.</small>'}</div><span class="detail-demo">${business.demo ? "Exemplo demonstrativo" : business.shared ? "Anúncio da comunidade" : "Cadastro antigo deste navegador"}</span></aside></div>
   </div>`;
 }
 
